@@ -212,8 +212,6 @@ class _CameraScanScreenState extends State<CameraScanScreen>
     );
     final noteCtrl = TextEditingController();
     final isCodeScan = result.scanType == 'qr' || result.scanType == 'barcode';
-    String selectedCategory =
-        isCodeScan ? 'QR / Barcode' : kDefaultCategories.first;
 
     final badgeText = isCodeScan
         ? (result.barcodeFormat ?? result.scanType.toUpperCase())
@@ -227,252 +225,210 @@ class _CameraScanScreenState extends State<CameraScanScreen>
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setModalState) {
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                18,
-                16,
-                18,
-                MediaQuery.of(ctx).viewInsets.bottom + 20,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            16,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF334155),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
                   children: [
-                    Center(
-                      child: Container(
-                        width: 42,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF334155),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
+                    Icon(
+                      isCodeScan
+                          ? Icons.qr_code_scanner_rounded
+                          : Icons.document_scanner_rounded,
+                      color: const Color(0xFF00E5FF),
+                      size: 20,
                     ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Icon(
-                          isCodeScan
-                              ? Icons.qr_code_scanner_rounded
-                              : Icons.document_scanner_rounded,
-                          color: const Color(0xFF00E5FF),
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          isCodeScan
-                              ? 'HASIL QR / BARCODE'
-                              : 'KONFIRMASI HASIL OCR',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.0,
-                          ),
-                        ),
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF00E676).withAlpha(30),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            badgeText,
-                            style: const TextStyle(
-                              color: Color(0xFF00E676),
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-
-                    // Cropped ROI photo preview
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        height: 110,
-                        width: double.infinity,
-                        color: const Color(0xFF050914),
-                        child: Image.file(
-                          File(result.evidenceImagePath),
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    TextField(
-                      controller: textCtrl,
-                      maxLines: 3,
-                      minLines: 1,
+                    const SizedBox(width: 8),
+                    Text(
+                      isCodeScan ? 'HASIL QR / BARCODE' : 'HASIL SCAN OCR',
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                      decoration: InputDecoration(
-                        labelText: isCodeScan
-                            ? 'Isi QR / Barcode (bisa edit cepat)'
-                            : 'Hasil Teks / Angka (bisa edit cepat)',
-                        hintText: isCodeScan && textCtrl.text.isEmpty
-                            ? 'QR/Barcode tidak terdeteksi — coba dekatkan kamera'
-                            : null,
-                        hintStyle: const TextStyle(
-                          color: Color(0xFFFFB300),
-                          fontSize: 12.5,
-                        ),
-                        labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
-                        filled: true,
-                        fillColor: const Color(0xFF0A0F1E),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFF334155)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF00E5FF),
-                            width: 1.5,
-                          ),
-                        ),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.0,
                       ),
                     ),
-                    const SizedBox(height: 12),
-
-                    const Text(
-                      'KATEGORI',
-                      style: TextStyle(
-                        color: Color(0xFF94A3B8),
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.8,
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 6,
-                      children: kDefaultCategories.map((cat) {
-                        final selected = cat == selectedCategory;
-                        return ChoiceChip(
-                          label: Text(cat),
-                          selected: selected,
-                          onSelected: (_) =>
-                              setModalState(() => selectedCategory = cat),
-                          selectedColor: const Color(0xFF00E5FF),
-                          backgroundColor: const Color(0xFF1E293B),
-                          labelStyle: TextStyle(
-                            color: selected
-                                ? const Color(0xFF0A0F1E)
-                                : const Color(0xFFCBD5E1),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 12),
-
-                    TextField(
-                      controller: noteCtrl,
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
-                      decoration: InputDecoration(
-                        labelText: 'Catatan lokasi / unit (opsional)',
-                        labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
-                        filled: true,
-                        fillColor: const Color(0xFF0A0F1E),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00E676).withAlpha(30),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        badgeText,
+                        style: const TextStyle(
+                          color: Color(0xFF00E676),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () {
-                              try {
-                                File(result.evidenceImagePath).deleteSync();
-                              } catch (_) {}
-                              Navigator.of(ctx).pop();
-                            },
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF94A3B8),
-                              side: const BorderSide(color: Color(0xFF334155)),
-                              padding: const EdgeInsets.symmetric(vertical: 13),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            child: const Text('Scan Ulang'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 2,
-                          child: FilledButton.icon(
-                            onPressed: () {
-                              final finalVal = textCtrl.text.trim();
-                              if (finalVal.isEmpty) {
-                                ScaffoldMessenger.of(ctx).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Hasil scan tidak boleh kosong.'),
-                                  ),
-                                );
-                                return;
-                              }
-                              final entry = ScanEntry(
-                                id: DateTime.now()
-                                    .millisecondsSinceEpoch
-                                    .toString(),
-                                text: finalVal,
-                                rawText: result.rawText,
-                                category: selectedCategory,
-                                note: noteCtrl.text.trim(),
-                                filterMode: isCodeScan
-                                    ? 'barcode'
-                                    : _filterMode.name,
-                                scanType: result.scanType,
-                                barcodeFormat: result.barcodeFormat,
-                                imagePath: result.evidenceImagePath,
-                                createdAt: DateTime.now(),
-                              );
-                              Navigator.of(ctx).pop(entry);
-                            },
-                            icon: const Icon(Icons.check_rounded),
-                            label: const Text(
-                              'Simpan ke Log',
-                              style: TextStyle(fontWeight: FontWeight.w800),
-                            ),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF00E676),
-                              foregroundColor: const Color(0xFF0A0F1E),
-                              padding: const EdgeInsets.symmetric(vertical: 13),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
                     ),
                   ],
                 ),
-              ),
-            );
-          },
+                const SizedBox(height: 12),
+
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    height: 110,
+                    width: double.infinity,
+                    color: const Color(0xFF050914),
+                    child: Image.file(
+                      File(result.evidenceImagePath),
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                TextField(
+                  controller: textCtrl,
+                  maxLines: 3,
+                  minLines: 1,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  decoration: InputDecoration(
+                    labelText: isCodeScan
+                        ? 'Isi QR / Barcode'
+                        : 'Hasil Teks / Angka',
+                    hintText: isCodeScan && textCtrl.text.isEmpty
+                        ? 'QR/Barcode tidak terdeteksi — coba dekatkan kamera'
+                        : null,
+                    hintStyle: const TextStyle(
+                      color: Color(0xFFFFB300),
+                      fontSize: 12.5,
+                    ),
+                    labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                    filled: true,
+                    fillColor: const Color(0xFF0A0F1E),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFF334155)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(
+                        color: Color(0xFF00E5FF),
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                TextField(
+                  controller: noteCtrl,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  decoration: InputDecoration(
+                    labelText: 'Catatan (opsional)',
+                    labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                    filled: true,
+                    fillColor: const Color(0xFF0A0F1E),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          try {
+                            File(result.evidenceImagePath).deleteSync();
+                          } catch (_) {}
+                          Navigator.of(ctx).pop();
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF94A3B8),
+                          side: const BorderSide(color: Color(0xFF334155)),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Ulang'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: FilledButton.icon(
+                        onPressed: () {
+                          final finalVal = textCtrl.text.trim();
+                          if (finalVal.isEmpty) {
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              const SnackBar(
+                                content: Text('Hasil scan tidak boleh kosong.'),
+                              ),
+                            );
+                            return;
+                          }
+                          final entry = ScanEntry(
+                            id: DateTime.now()
+                                .millisecondsSinceEpoch
+                                .toString(),
+                            text: finalVal,
+                            rawText: result.rawText,
+                            note: noteCtrl.text.trim(),
+                            filterMode: isCodeScan
+                                ? 'barcode'
+                                : _filterMode.name,
+                            scanType: result.scanType,
+                            barcodeFormat: result.barcodeFormat,
+                            imagePath: result.evidenceImagePath,
+                            createdAt: DateTime.now(),
+                          );
+                          Navigator.of(ctx).pop(entry);
+                        },
+                        icon: const Icon(Icons.check_rounded),
+                        label: const Text(
+                          'Simpan',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF00E676),
+                          foregroundColor: const Color(0xFF0A0F1E),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -496,7 +452,6 @@ class _CameraScanScreenState extends State<CameraScanScreen>
           return Stack(
             fit: StackFit.expand,
             children: [
-              // 1. Live Camera Preview
               if (_cameraReady && _cameraController != null)
                 CameraPreview(_cameraController!)
               else if (_cameraError != null)
@@ -532,7 +487,6 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                   child: CircularProgressIndicator(color: Color(0xFF00E5FF)),
                 ),
 
-              // 2. ROI Viewfinder Overlay + Laser Line
               if (_cameraReady)
                 AnimatedBuilder(
                   animation: _laserAnim,
@@ -546,7 +500,6 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                   ),
                 ),
 
-              // 3. Top Controls Bar + Mode Switcher
               Positioned(
                 top: 0,
                 left: 0,
@@ -600,7 +553,6 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                           ],
                         ),
                         const SizedBox(height: 10),
-                        // Mode Segmented Switcher: OCR vs QR / Barcode
                         Container(
                           padding: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
@@ -638,7 +590,6 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                 ),
               ),
 
-              // 4. Helper badge above ROI
               if (_cameraReady)
                 Positioned(
                   top: roiRect.top - 34,
@@ -673,7 +624,6 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                   ),
                 ),
 
-              // 5. Bottom Control Deck
               Positioned(
                 bottom: 0,
                 left: 0,
@@ -739,7 +689,7 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                           )
                         else
                           const Text(
-                            'Mendukung QR, Code128, Code39, EAN-13, UPC, DataMatrix',
+                            'QR • Code128 • Code39 • EAN-13 • UPC • DataMatrix',
                             style: TextStyle(
                               color: Color(0xFF94A3B8),
                               fontSize: 11.5,

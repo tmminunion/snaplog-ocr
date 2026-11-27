@@ -22,7 +22,6 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
 
   ApiConfig _apiConfig = const ApiConfig();
-  String _selectedCategory = 'Semua';
   String _searchQuery = '';
   bool _isBatchSyncing = false;
 
@@ -52,16 +51,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   List<ScanEntry> get _filteredEntries {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return _repo.entries;
     return _repo.entries.where((e) {
-      final catMatch =
-          _selectedCategory == 'Semua' || e.category == _selectedCategory;
-      final q = _searchQuery.toLowerCase();
-      final textMatch = q.isEmpty ||
-          e.text.toLowerCase().contains(q) ||
+      return e.text.toLowerCase().contains(q) ||
           e.note.toLowerCase().contains(q) ||
-          e.category.toLowerCase().contains(q) ||
           e.scanType.toLowerCase().contains(q);
-      return catMatch && textMatch;
     }).toList();
   }
 
@@ -104,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!silentIfMissing && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Atur URL REST API dulu di ikon Cloud Settings.'),
+            content: const Text('Atur URL REST API dulu di Pengaturan API.'),
             action: SnackBarAction(
               label: 'Atur',
               onPressed: _openApiSettings,
@@ -172,7 +167,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Sync API (${_apiConfig.method}): $okCount/${pending.length} berhasil dikirim.',
+            'Sync API (${_apiConfig.method}): $okCount/${pending.length} berhasil.',
           ),
           backgroundColor:
               okCount > 0 ? const Color(0xFF0F766E) : const Color(0xFFB91C1C),
@@ -203,7 +198,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showEntryDetail(ScanEntry entry) {
     final textCtrl = TextEditingController(text: entry.text);
     final noteCtrl = TextEditingController(text: entry.note);
-    String cat = entry.category;
     bool sending = false;
 
     showModalBottomSheet<void>(
@@ -226,8 +220,21 @@ class _HomeScreenState extends State<HomeScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF334155),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
                 Row(
                   children: [
+                    _typeChip(entry),
+                    const SizedBox(width: 8),
                     Text(
                       formatTimestamp(entry.createdAt),
                       style: const TextStyle(
@@ -236,8 +243,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    _typeChip(entry),
                     const Spacer(),
                     IconButton(
                       tooltip: 'Salin teks',
@@ -272,7 +277,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (entry.imagePath != null &&
                     File(entry.imagePath!).existsSync())
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.only(top: 6, bottom: 12),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(14),
                       child: Container(
@@ -311,34 +316,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   controller: noteCtrl,
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
-                    labelText: 'Catatan',
+                    labelText: 'Catatan (opsional)',
                     filled: true,
                     fillColor: const Color(0xFF0A0F1E),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 6,
-                  children: kDefaultCategories.map((c) {
-                    final sel = c == cat;
-                    return ChoiceChip(
-                      label: Text(c),
-                      selected: sel,
-                      onSelected: (_) => setModalState(() => cat = c),
-                      selectedColor: const Color(0xFF00E5FF),
-                      backgroundColor: const Color(0xFF1E293B),
-                      labelStyle: TextStyle(
-                        color: sel
-                            ? const Color(0xFF0A0F1E)
-                            : const Color(0xFFCBD5E1),
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    );
-                  }).toList(),
                 ),
                 if (entry.apiLastResponse != null &&
                     entry.apiLastResponse!.isNotEmpty) ...[
@@ -380,7 +364,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                 final updated = entry.copyWith(
                                   text: textCtrl.text.trim(),
                                   note: noteCtrl.text.trim(),
-                                  category: cat,
                                 );
                                 await _repo.updateEntry(updated);
                                 await _sendSingleEntry(updated);
@@ -418,7 +401,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           final updated = entry.copyWith(
                             text: textCtrl.text.trim(),
                             note: noteCtrl.text.trim(),
-                            category: cat,
                           );
                           await _repo.updateEntry(updated);
                           if (ctx.mounted) Navigator.of(ctx).pop();
@@ -488,14 +470,15 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF0A0F1E),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0E1529),
+        backgroundColor: const Color(0xFF0A0F1E),
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         title: const Row(
           children: [
             Icon(
               Icons.document_scanner_rounded,
               color: Color(0xFF00E5FF),
-              size: 22,
+              size: 21,
             ),
             SizedBox(width: 8),
             Text(
@@ -511,7 +494,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           IconButton(
-            tooltip: 'Kirim Pending ke REST API',
+            tooltip: 'Sync Pending ke REST API',
             onPressed: _isBatchSyncing ? null : _syncAllPending,
             icon: _isBatchSyncing
                 ? const SizedBox(
@@ -523,35 +506,57 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   )
                 : Icon(
-                    Icons.cloud_upload_rounded,
+                    Icons.cloud_upload_outlined,
                     color: _apiConfig.isConfigured
                         ? const Color(0xFF00E5FF)
                         : const Color(0xFF64748B),
                   ),
           ),
           IconButton(
-            tooltip: 'Pengaturan REST API (POST/GET)',
+            tooltip: 'Pengaturan REST API',
             onPressed: _openApiSettings,
             icon: const Icon(
-              Icons.settings_ethernet_rounded,
-              color: Color(0xFFFFB300),
+              Icons.tune_rounded,
+              color: Color(0xFFCBD5E1),
             ),
           ),
-          IconButton(
-            tooltip: 'Ekspor CSV (Excel)',
-            onPressed: _exportCsv,
-            icon: const Icon(
-              Icons.file_download_rounded,
-              color: Color(0xFF00E676),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Hapus Semua Log',
-            onPressed: _confirmClearAll,
-            icon: const Icon(
-              Icons.delete_sweep_rounded,
-              color: Color(0xFF94A3B8),
-            ),
+          PopupMenuButton<String>(
+            color: const Color(0xFF11182C),
+            icon: const Icon(Icons.more_vert_rounded, color: Color(0xFFCBD5E1)),
+            onSelected: (val) {
+              if (val == 'csv') _exportCsv();
+              if (val == 'clear') _confirmClearAll();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'csv',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.file_download_rounded,
+                      color: Color(0xFF00E676),
+                      size: 19,
+                    ),
+                    SizedBox(width: 10),
+                    Text('Ekspor CSV (Excel)'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'clear',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.delete_outline_rounded,
+                      color: Color(0xFFFF5252),
+                      size: 19,
+                    ),
+                    SizedBox(width: 10),
+                    Text('Hapus Semua Log'),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -560,25 +565,27 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           FloatingActionButton.extended(
             heroTag: 'fab_qr',
+            elevation: 2,
             onPressed: () => _openScanner(mode: ScannerMode.qrBarcode),
             backgroundColor: const Color(0xFF00E676),
             foregroundColor: const Color(0xFF0A0F1E),
-            icon: const Icon(Icons.qr_code_scanner_rounded),
+            icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
             label: const Text(
-              'QR/BAR',
-              style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.6),
+              'QR / BAR',
+              style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.5),
             ),
           ),
           const SizedBox(width: 10),
           FloatingActionButton.extended(
             heroTag: 'fab_ocr',
+            elevation: 2,
             onPressed: () => _openScanner(mode: ScannerMode.ocr),
             backgroundColor: const Color(0xFF00E5FF),
             foregroundColor: const Color(0xFF0A0F1E),
-            icon: const Icon(Icons.camera_alt_rounded),
+            icon: const Icon(Icons.camera_alt_rounded, size: 20),
             label: const Text(
               'SCAN OCR',
-              style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.6),
+              style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.5),
             ),
           ),
         ],
@@ -589,13 +596,13 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           : Column(
               children: [
-                _buildStatsBar(),
-                _buildSearchAndFilter(),
+                _buildSummaryBar(),
+                _buildSearchBar(),
                 Expanded(
                   child: items.isEmpty
                       ? _buildEmptyState()
                       : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(14, 8, 14, 96),
+                          padding: const EdgeInsets.fromLTRB(16, 6, 16, 96),
                           itemCount: items.length,
                           separatorBuilder: (_, __) =>
                               const SizedBox(height: 10),
@@ -607,55 +614,40 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildStatsBar() {
+  Widget _buildSummaryBar() {
     final apiStatus = _apiConfig.isConfigured
-        ? '${_apiConfig.method}${_apiConfig.autoSend ? ' AUTO' : ''}'
+        ? '${_apiConfig.method}${_apiConfig.autoSend ? ' • AUTO' : ''}'
         : 'OFFLINE';
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF132242), Color(0xFF0E172E)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFF00E5FF).withAlpha(75)),
-      ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
       child: Row(
         children: [
-          _statBox(
-            label: 'TOTAL LOG',
-            value: _repo.entries.length.toString(),
-            color: const Color(0xFF00E5FF),
-          ),
-          const SizedBox(width: 10),
-          _statBox(
-            label: 'HARI INI',
-            value: _repo.todayCount.toString(),
-            color: const Color(0xFF00E676),
-          ),
-          const SizedBox(width: 10),
+          _miniStat('TOTAL', _repo.entries.length.toString(), const Color(0xFF00E5FF)),
+          const SizedBox(width: 8),
+          _miniStat('HARI INI', _repo.todayCount.toString(), const Color(0xFF00E676)),
+          const SizedBox(width: 8),
           Expanded(
-            child: GestureDetector(
+            child: InkWell(
               onTap: _openApiSettings,
+              borderRadius: BorderRadius.circular(12),
               child: Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0A0F1E).withAlpha(170),
+                  color: const Color(0xFF11182C),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: const Color(0xFFFFB300).withAlpha(80),
+                    color: _apiConfig.isConfigured
+                        ? const Color(0xFFFFB300).withAlpha(110)
+                        : const Color(0xFF1E293B),
                   ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'REST API',
+                      'API',
                       style: TextStyle(
                         color: Color(0xFF64748B),
                         fontSize: 9.5,
@@ -665,12 +657,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 2),
                     Text(
                       apiStatus,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Color(0xFFFFB300),
-                        fontSize: 14,
+                        fontSize: 13,
                         fontWeight: FontWeight.w900,
                       ),
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
@@ -682,18 +674,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _statBox({
-    required String label,
-    required String value,
-    required Color color,
-  }) {
+  Widget _miniStat(String label, String value, Color color) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: const Color(0xFF0A0F1E).withAlpha(170),
+          color: const Color(0xFF11182C),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withAlpha(70)),
+          border: Border.all(color: const Color(0xFF1E293B)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -711,7 +699,7 @@ class _HomeScreenState extends State<HomeScreen> {
               value,
               style: TextStyle(
                 color: color,
-                fontSize: 16,
+                fontSize: 15,
                 fontWeight: FontWeight.w900,
               ),
             ),
@@ -721,88 +709,51 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildSearchAndFilter() {
-    final categories = ['Semua', ...kDefaultCategories];
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-          child: TextField(
-            controller: _searchCtrl,
-            onChanged: (v) => setState(() => _searchQuery = v),
-            style: const TextStyle(color: Colors.white, fontSize: 14),
-            decoration: InputDecoration(
-              hintText: 'Cari teks, QR/barcode, atau catatan...',
-              hintStyle: const TextStyle(color: Color(0xFF64748B)),
-              prefixIcon: const Icon(
-                Icons.search_rounded,
-                color: Color(0xFF64748B),
-              ),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(
-                        Icons.close_rounded,
-                        color: Color(0xFF94A3B8),
-                        size: 18,
-                      ),
-                      onPressed: () {
-                        _searchCtrl.clear();
-                        setState(() => _searchQuery = '');
-                      },
-                    )
-                  : null,
-              filled: true,
-              fillColor: const Color(0xFF11182C),
-              contentPadding: const EdgeInsets.symmetric(vertical: 10),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide.none,
-              ),
-            ),
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      child: TextField(
+        controller: _searchCtrl,
+        onChanged: (v) => setState(() => _searchQuery = v),
+        style: const TextStyle(color: Colors.white, fontSize: 14),
+        decoration: InputDecoration(
+          hintText: 'Cari hasil scan...',
+          hintStyle: const TextStyle(color: Color(0xFF64748B)),
+          prefixIcon: const Icon(
+            Icons.search_rounded,
+            color: Color(0xFF64748B),
+            size: 20,
+          ),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: Color(0xFF94A3B8),
+                    size: 18,
+                  ),
+                  onPressed: () {
+                    _searchCtrl.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                )
+              : null,
+          filled: true,
+          fillColor: const Color(0xFF11182C),
+          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFF1E293B)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFF1E293B)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFF00E5FF)),
           ),
         ),
-        SizedBox(
-          height: 44,
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            scrollDirection: Axis.horizontal,
-            itemCount: categories.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 6),
-            itemBuilder: (_, i) {
-              final cat = categories[i];
-              final sel = cat == _selectedCategory;
-              return GestureDetector(
-                onTap: () => setState(() => _selectedCategory = cat),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: sel
-                        ? const Color(0xFF00E5FF)
-                        : const Color(0xFF131C33),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: sel
-                          ? const Color(0xFF00E5FF)
-                          : const Color(0xFF1E293B),
-                    ),
-                  ),
-                  child: Text(
-                    cat,
-                    style: TextStyle(
-                      color: sel
-                          ? const Color(0xFF0A0F1E)
-                          : const Color(0xFFCBD5E1),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -823,7 +774,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withAlpha(30),
+        color: color.withAlpha(28),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
@@ -843,12 +794,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return InkWell(
       onTap: () => _showEntryDetail(entry),
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: const Color(0xFF11182C),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: const Color(0xFF1E293B)),
         ),
         child: Row(
@@ -856,8 +807,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: Container(
-                width: 62,
-                height: 62,
+                width: 56,
+                height: 56,
                 color: const Color(0xFF050914),
                 child: hasPhoto
                     ? Image.file(
@@ -880,28 +831,25 @@ class _HomeScreenState extends State<HomeScreen> {
                   Row(
                     children: [
                       _typeChip(entry),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          entry.category,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Color(0xFF94A3B8),
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w700,
-                          ),
+                      const SizedBox(width: 8),
+                      Text(
+                        formatTimestamp(entry.createdAt).substring(5, 16),
+                        style: const TextStyle(
+                          color: Color(0xFF64748B),
+                          fontSize: 11,
                         ),
                       ),
-                      const SizedBox(width: 6),
-                      if (entry.apiSynced)
+                      if (entry.apiSynced) ...[
+                        const SizedBox(width: 6),
                         const Icon(
                           Icons.cloud_done_rounded,
                           size: 14,
                           color: Color(0xFF00E676),
                         ),
+                      ],
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 5),
                   Text(
                     entry.text,
                     maxLines: 2,
@@ -954,33 +902,33 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 72,
-              height: 72,
+              width: 68,
+              height: 68,
               decoration: BoxDecoration(
-                color: const Color(0xFF00E5FF).withAlpha(22),
+                color: const Color(0xFF00E5FF).withAlpha(20),
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: const Color(0xFF00E5FF).withAlpha(80),
+                  color: const Color(0xFF00E5FF).withAlpha(75),
                 ),
               ),
               child: const Icon(
                 Icons.qr_code_scanner_rounded,
                 color: Color(0xFF00E5FF),
-                size: 34,
+                size: 32,
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             const Text(
               'Belum Ada Log Scan',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 17,
+                fontSize: 16,
                 fontWeight: FontWeight.w800,
               ),
             ),
             const SizedBox(height: 6),
             const Text(
-              'Gunakan tombol SCAN OCR untuk teks/angka atau QR/BAR untuk QR Code & Barcode. Data bisa diekspor ke CSV atau dikirim via REST API POST/GET.',
+              'Tap SCAN OCR atau QR / BAR di bawah untuk mulai memindai.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Color(0xFF94A3B8),

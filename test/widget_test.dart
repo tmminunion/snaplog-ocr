@@ -21,13 +21,12 @@ void main() {
     );
   });
 
-  test('buildCsvContent includes scanType, barcodeFormat, and API status', () {
+  test('buildCsvContent includes scanType, barcodeFormat, and API status without category', () {
     final entries = [
       ScanEntry(
         id: '1',
         text: 'PART-99, REV "B"',
         rawText: 'PART-99, REV "B"',
-        category: 'QR / Barcode',
         note: 'Line A',
         filterMode: 'barcode',
         scanType: 'qr',
@@ -40,7 +39,7 @@ void main() {
     ];
 
     final csv = buildCsvContent(entries);
-    expect(csv.startsWith('\uFEFFNo,Timestamp,Tipe,Format,Kategori'), isTrue);
+    expect(csv.startsWith('\uFEFFNo,Timestamp,Tipe,Format,Hasil_Scan'), isTrue);
     expect(csv.contains('QR,QR_CODE'), isTrue);
     expect(csv.contains('"PART-99, REV ""B"""'), isTrue);
     expect(csv.contains('SENT (200)'), isTrue);
@@ -66,7 +65,6 @@ void main() {
       id: 'e1',
       text: '10452',
       rawText: '10452',
-      category: 'Meteran',
       note: 'Panel 1',
       filterMode: 'numbersOnly',
       imagePath: null,
@@ -84,7 +82,7 @@ void main() {
     expect(repo.entries, isEmpty);
   });
 
-  testWidgets('SnapLogOcrApp renders home dashboard with QR & OCR buttons',
+  testWidgets('SnapLogOcrApp renders clean home dashboard without categories',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(const SnapLogOcrApp());
@@ -92,7 +90,8 @@ void main() {
 
     expect(find.text('SNAPLOG OCR'), findsOneWidget);
     expect(find.text('SCAN OCR'), findsOneWidget);
-    expect(find.text('QR/BAR'), findsOneWidget);
+    expect(find.text('QR / BAR'), findsOneWidget);
     expect(find.text('Belum Ada Log Scan'), findsOneWidget);
+    expect(find.text('Meteran'), findsNothing);
   });
 }

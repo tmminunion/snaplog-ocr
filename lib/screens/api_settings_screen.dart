@@ -74,7 +74,6 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
       'value': 'SNAPLOG-TEST-001',
       'scan_type': 'qr',
       'barcode_format': 'QR_CODE',
-      'category': 'QR / Barcode',
       'note': 'Test koneksi dari SnapLog OCR',
       'timestamp': DateTime.now().toIso8601String(),
     };
@@ -100,7 +99,8 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF0A0F1E),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0E1529),
+        backgroundColor: const Color(0xFF0A0F1E),
+        surfaceTintColor: Colors.transparent,
         title: const Text(
           'PENGATURAN REST API',
           style: TextStyle(
@@ -343,8 +343,8 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
                       ),
                       SizedBox(height: 6),
                       Text(
-                        'POST: JSON body { id, value, raw_text, scan_type, barcode_format, category, note, timestamp }\n'
-                        'GET: Query string ?id=...&value=...&scan_type=...&category=...&timestamp=...',
+                        'POST: JSON { id, value, raw_text, scan_type, barcode_format, note, timestamp }\n'
+                        'GET: ?id=...&value=...&scan_type=...&note=...&timestamp=...',
                         style: TextStyle(
                           color: Color(0xFF94A3B8),
                           fontSize: 11.5,

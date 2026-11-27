@@ -33,15 +33,6 @@ extension OcrFilterModeExt on OcrFilterMode {
   }
 }
 
-const List<String> kDefaultCategories = [
-  'Meteran',
-  'Part / Serial',
-  'QR / Barcode',
-  'Inspeksi',
-  'Stok / Gudang',
-  'Lainnya',
-];
-
 String applyOcrFilter(String raw, OcrFilterMode mode) {
   final cleaned = raw
       .replaceAll('\r\n', '\n')
@@ -70,7 +61,6 @@ class ScanEntry {
   final String id;
   final String text;
   final String rawText;
-  final String category;
   final String note;
   final String filterMode;
   final String scanType; // 'ocr', 'qr', 'barcode'
@@ -85,7 +75,6 @@ class ScanEntry {
     required this.id,
     required this.text,
     required this.rawText,
-    required this.category,
     required this.note,
     required this.filterMode,
     this.scanType = 'ocr',
@@ -99,7 +88,6 @@ class ScanEntry {
 
   ScanEntry copyWith({
     String? text,
-    String? category,
     String? note,
     bool? apiSynced,
     int? apiStatusCode,
@@ -109,7 +97,6 @@ class ScanEntry {
       id: id,
       text: text ?? this.text,
       rawText: rawText,
-      category: category ?? this.category,
       note: note ?? this.note,
       filterMode: filterMode,
       scanType: scanType,
@@ -128,7 +115,6 @@ class ScanEntry {
         'raw_text': rawText,
         'scan_type': scanType,
         'barcode_format': barcodeFormat ?? '',
-        'category': category,
         'note': note,
         'filter_mode': filterMode,
         'timestamp': createdAt.toIso8601String(),
@@ -138,7 +124,6 @@ class ScanEntry {
         'id': id,
         'text': text,
         'rawText': rawText,
-        'category': category,
         'note': note,
         'filterMode': filterMode,
         'scanType': scanType,
@@ -156,7 +141,6 @@ class ScanEntry {
           DateTime.now().millisecondsSinceEpoch.toString(),
       text: (map['text'] as String?) ?? '',
       rawText: (map['rawText'] as String?) ?? '',
-      category: (map['category'] as String?) ?? 'Lainnya',
       note: (map['note'] as String?) ?? '',
       filterMode: (map['filterMode'] as String?) ?? 'all',
       scanType: (map['scanType'] as String?) ?? 'ocr',
@@ -247,7 +231,7 @@ String buildCsvContent(List<ScanEntry> entries) {
   // UTF-8 BOM so Microsoft Excel detects UTF-8 automatically
   buf.write('\uFEFF');
   buf.writeln(
-    'No,Timestamp,Tipe,Format,Kategori,Hasil_Scan,Catatan,Status_API,File_Bukti',
+    'No,Timestamp,Tipe,Format,Hasil_Scan,Catatan,Status_API,File_Bukti',
   );
   for (int i = 0; i < entries.length; i++) {
     final e = entries[i];
@@ -260,7 +244,6 @@ String buildCsvContent(List<ScanEntry> entries) {
       _csvEscape(formatTimestamp(e.createdAt)),
       _csvEscape(e.scanType.toUpperCase()),
       _csvEscape(e.barcodeFormat ?? e.filterMode),
-      _csvEscape(e.category),
       _csvEscape(e.text),
       _csvEscape(e.note),
       _csvEscape(apiState),
