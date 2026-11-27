@@ -67,6 +67,11 @@ jobs:
           -dontwarn com.google.mlkit.vision.text.devanagari.**
           -dontwarn com.google.mlkit.vision.text.japanese.**
           -dontwarn com.google.mlkit.vision.text.korean.**
+          -keep class com.google.mlkit.** { *; }
+          -keep class com.google.android.gms.internal.mlkit_** { *; }
+          -keep class com.google.android.gms.vision.** { *; }
+          -keep class com.google_mlkit_text_recognition.** { *; }
+          -keep class com.google_mlkit_commons.** { *; }
           EOF
 
           python3 - <<'PYEOF'
@@ -84,7 +89,7 @@ jobs:
           m = re.sub(r'android:label="[^"]*"', 'android:label="SnapLog OCR"', m)
           open(mpath, "w", encoding="utf-8").write(m)
 
-          # Ensure minSdk >= 21 and wire proguard-rules.pro for ML Kit R8
+          # Ensure minSdk >= 21 and disable R8 stripping that breaks ML Kit ComponentRegistrar reflection
           kts_path = "android/app/build.gradle.kts"
           if os.path.exists(kts_path):
               txt = open(kts_path, "r", encoding="utf-8").read()
@@ -92,10 +97,12 @@ jobs:
                   "minSdk = flutter.minSdkVersion",
                   "minSdk = maxOf(21, flutter.minSdkVersion)",
               )
-              if "proguard-rules.pro" not in txt:
+              if "isMinifyEnabled" not in txt:
                   txt = txt.replace(
                       'signingConfig = signingConfigs.getByName("debug")',
                       'signingConfig = signingConfigs.getByName("debug")\n'
+                      '            isMinifyEnabled = false\n'
+                      '            isShrinkResources = false\n'
                       '            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")',
                       1,
                   )
