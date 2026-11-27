@@ -401,9 +401,19 @@ jobs:
           if not ok:
               raise SystemExit(f"Gagal set track {fail_tr} ({fail_code}): {fail_txt}")
 
-          r_commit = requests.post(f"{base}/{edit_id}:commit", headers=auth_hdr, timeout=30)
-          if r_commit.status_code == 400 and "changesNotSentForReview" in r_commit.text:
-              r_commit = requests.post(f"{base}/{edit_id}:commit?changesNotSentForReview=true", headers=auth_hdr, timeout=30)
+          def do_commit():
+              rc = requests.post(f"{base}/{edit_id}:commit", headers=auth_hdr, timeout=30)
+              if rc.status_code == 400 and "changesNotSentForReview" in rc.text:
+                  rc = requests.post(f"{base}/{edit_id}:commit?changesNotSentForReview=true", headers=auth_hdr, timeout=30)
+              return rc
+
+          r_commit = do_commit()
+          if r_commit.status_code == 400 and "draft" in r_commit.text.lower() and status != "draft":
+              print("App masih berstatus Draft saat commit; fallback semua track ke status=draft dan commit ulang...")
+              ok2, fail_tr2, fail_code2, fail_txt2 = put_tracks("draft")
+              if not ok2:
+                  raise SystemExit(f"Gagal set fallback draft track {fail_tr2} ({fail_code2}): {fail_txt2}")
+              r_commit = do_commit()
           if not r_commit.ok:
               raise SystemExit(f"Gagal commit edit ({r_commit.status_code}): {r_commit.text}")
           print(f"Sukses publish versionCode={vcode} ke tracks: {', '.join(tracks)}")
