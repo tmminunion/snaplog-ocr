@@ -4,16 +4,17 @@ class RoiOverlayPainter extends CustomPainter {
   final Rect roiRect;
   final double scanProgress; // 0.0 .. 1.0
   final bool isProcessing;
+  final bool flashSuccess;
 
   RoiOverlayPainter({
     required this.roiRect,
     required this.scanProgress,
     required this.isProcessing,
+    this.flashSuccess = false,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Darkened translucent mask outside the ROI box
     final outerPath = Path()
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
     final holePath = Path()
@@ -26,18 +27,27 @@ class RoiOverlayPainter extends CustomPainter {
       Paint()..color = const Color(0xFF050914).withAlpha(165),
     );
 
-    // Subtle border around ROI box
-    final accent =
-        isProcessing ? const Color(0xFFFFB300) : const Color(0xFF00E5FF);
+    final accent = flashSuccess
+        ? const Color(0xFF00E676)
+        : isProcessing
+            ? const Color(0xFFFFB300)
+            : const Color(0xFF00E5FF);
+
+    if (flashSuccess) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(roiRect, const Radius.circular(14)),
+        Paint()..color = const Color(0xFF00E676).withAlpha(55),
+      );
+    }
+
     canvas.drawRRect(
       RRect.fromRectAndRadius(roiRect, const Radius.circular(14)),
       Paint()
-        ..color = accent.withAlpha(110)
+        ..color = accent.withAlpha(flashSuccess ? 220 : 110)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4,
+        ..strokeWidth = flashSuccess ? 2.6 : 1.4,
     );
 
-    // Corner brackets
     const double cornerLen = 24.0;
     final bracketPaint = Paint()
       ..color = accent
@@ -50,23 +60,24 @@ class RoiOverlayPainter extends CustomPainter {
     final r = roiRect.right;
     final b = roiRect.bottom;
 
-    // Top-left
     canvas.drawLine(Offset(l, t + cornerLen), Offset(l, t), bracketPaint);
     canvas.drawLine(Offset(l, t), Offset(l + cornerLen, t), bracketPaint);
-    // Top-right
+
     canvas.drawLine(Offset(r - cornerLen, t), Offset(r, t), bracketPaint);
     canvas.drawLine(Offset(r, t), Offset(r, t + cornerLen), bracketPaint);
-    // Bottom-left
+
     canvas.drawLine(Offset(l, b - cornerLen), Offset(l, b), bracketPaint);
     canvas.drawLine(Offset(l, b), Offset(l + cornerLen, b), bracketPaint);
-    // Bottom-right
-    canvas.drawLine(Offset(r - cornerLen, b), Offset(r, b), bracketPaint);
-    canvas.drawLine(Offset(r, b - cornerLen), Offset(r, b), bracketPaint);
 
-    // Animated green laser scan line inside ROI
+    canvas.drawLine(Offset(r - cornerLen, b), Offset(r, b), bracketPaint);
+    canvas.drawLine(Offset(r, b), Offset(r, b - cornerLen), bracketPaint);
+
     final laserY = t + 10 + (roiRect.height - 20) * scanProgress;
-    final laserColor =
-        isProcessing ? const Color(0xFFFFB300) : const Color(0xFF00E676);
+    final laserColor = flashSuccess
+        ? const Color(0xFF00E676)
+        : isProcessing
+            ? const Color(0xFFFFB300)
+            : const Color(0xFF00E676);
 
     canvas.drawLine(
       Offset(l + 12, laserY),
@@ -89,6 +100,7 @@ class RoiOverlayPainter extends CustomPainter {
   bool shouldRepaint(covariant RoiOverlayPainter oldDelegate) {
     return oldDelegate.roiRect != roiRect ||
         oldDelegate.scanProgress != scanProgress ||
-        oldDelegate.isProcessing != isProcessing;
+        oldDelegate.isProcessing != isProcessing ||
+        oldDelegate.flashSuccess != flashSuccess;
   }
 }

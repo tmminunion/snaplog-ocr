@@ -71,29 +71,28 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _openScanner({ScannerMode mode = ScannerMode.ocr}) async {
-    final entry = await Navigator.of(context).push<ScanEntry>(
-      MaterialPageRoute(builder: (_) => CameraScanScreen(initialMode: mode)),
-    );
-    if (entry == null) return;
-
+  Future<void> _handleSavedScan(ScanEntry entry) async {
     await _repo.addEntry(entry);
-
     if (_apiConfig.isConfigured && _apiConfig.autoSend) {
-      await _sendSingleEntry(entry, silentIfMissing: true);
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Tersimpan: ${entry.text}'),
-          backgroundColor: const Color(0xFF0F766E),
-        ),
-      );
+      await _sendSingleEntry(entry, silentIfMissing: true, showToast: false);
     }
+  }
+
+  Future<void> _openScanner({ScannerMode mode = ScannerMode.ocr}) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => CameraScanScreen(
+          initialMode: mode,
+          onScanSaved: _handleSavedScan,
+        ),
+      ),
+    );
   }
 
   Future<bool> _sendSingleEntry(
     ScanEntry entry, {
     bool silentIfMissing = false,
+    bool showToast = true,
   }) async {
     if (!_apiConfig.isConfigured) {
       if (!silentIfMissing && mounted) {
@@ -120,7 +119,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
 
-    if (mounted) {
+    if (showToast && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${res.message} — ${entry.text}'),
@@ -623,9 +622,17 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
       child: Row(
         children: [
-          _miniStat('TOTAL', _repo.entries.length.toString(), const Color(0xFF00E5FF)),
+          _miniStat(
+            'TOTAL',
+            _repo.entries.length.toString(),
+            const Color(0xFF00E5FF),
+          ),
           const SizedBox(width: 8),
-          _miniStat('HARI INI', _repo.todayCount.toString(), const Color(0xFF00E676)),
+          _miniStat(
+            'HARI INI',
+            _repo.todayCount.toString(),
+            const Color(0xFF00E676),
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: InkWell(
@@ -928,7 +935,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Tap SCAN OCR atau QR / BAR di bawah untuk mulai memindai.',
+              'Tap SCAN OCR atau QR / BAR di bawah untuk mulai memindai otomatis.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Color(0xFF94A3B8),

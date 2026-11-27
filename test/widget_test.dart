@@ -4,6 +4,7 @@ import 'package:snaplog_ocr/main.dart';
 import 'package:snaplog_ocr/models/scan_entry.dart';
 import 'package:snaplog_ocr/services/api_service.dart';
 import 'package:snaplog_ocr/services/log_repository.dart';
+import 'package:snaplog_ocr/services/scan_stability.dart';
 
 void main() {
   test('applyOcrFilter extracts numbers and serial codes cleanly', () {
@@ -19,6 +20,48 @@ void main() {
       applyOcrFilter('Line 1\n  Line 2  ', OcrFilterMode.all),
       equals('Line 1 Line 2'),
     );
+  });
+
+  test('StabilityTracker commits on 3 consecutive identical frames and cools down', () {
+    final tracker = StabilityTracker(
+      requiredFrames: 3,
+      cooldown: const Duration(seconds: 2),
+    );
+    final t0 = DateTime(2026, 11, 27, 21, 0, 0);
+
+    final f1 = tracker.feed('SN-8899', now: t0);
+    expect(f1.shouldCommit, isFalse);
+    expect(f1.streak, equals(1));
+
+    final f2 = tracker.feed('SN-8899', now: t0.add(const Duration(milliseconds: 250)));
+    expect(f2.shouldCommit, isFalse);
+    expect(f2.streak, equals(2));
+
+    // Different reading resets streak
+    final mismatch = tracker.feed('SN-8890', now: t0.add(const Duration(milliseconds: 500)));
+    expect(mismatch.shouldCommit, isFalse);
+    expect(mismatch.streak, equals(1));
+
+    // 3 identical frames commit
+    expect(tracker.feed('SN-8899', now: t0.add(const Duration(milliseconds: 750))).streak, equals(1));
+    expect(tracker.feed('SN-8899', now: t0.add(const Duration(milliseconds: 1000))).streak, equals(2));
+    final f3 = tracker.feed('SN-8899', now: t0.add(const Duration(milliseconds: 1250)));
+    expect(f3.shouldCommit, isTrue);
+
+    // Same value within cooldown does not re-commit
+    final dup = tracker.feed('SN-8899', now: t0.add(const Duration(milliseconds: 1800)));
+    expect(dup.shouldCommit, isFalse);
+    expect(dup.inCooldown, isTrue);
+  });
+
+  test('BarcodeCooldownTracker prevents duplicate reads within cooldown window', () {
+    final tracker = BarcodeCooldownTracker(cooldown: const Duration(seconds: 2));
+    final t0 = DateTime(2026, 11, 27, 21, 0, 0);
+
+    expect(tracker.shouldAccept('QR-100', now: t0), isTrue);
+    expect(tracker.shouldAccept('QR-100', now: t0.add(const Duration(milliseconds: 900))), isFalse);
+    expect(tracker.shouldAccept('QR-200', now: t0.add(const Duration(milliseconds: 1000))), isTrue);
+    expect(tracker.shouldAccept('QR-200', now: t0.add(const Duration(milliseconds: 3500))), isTrue);
   });
 
   test('buildCsvContent includes scanType, barcodeFormat, and API status without category', () {
