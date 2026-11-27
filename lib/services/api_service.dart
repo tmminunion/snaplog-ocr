@@ -20,22 +20,165 @@ class ApiSendResult {
 }
 
 class ApiService {
-  static const String _configKey = 'snaplog_ocr_api_config_v1';
+  static const String _legacyConfigKey = 'snaplog_ocr_api_config_v1';
+  static const String _storeKey = 'snaplog_ocr_api_store_v2';
 
-  Future<ApiConfig> loadConfig() async {
+  Future<ApiStore> loadStore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_configKey);
-      if (raw != null && raw.isNotEmpty) {
-        return ApiConfig.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      final rawStore = prefs.getString(_storeKey);
+      if (rawStore != null && rawStore.isNotEmpty) {
+        return ApiStore.fromJson(jsonDecode(rawStore) as Map<String, dynamic>);
+      }
+
+      // Migrate legacy single-API config if present
+      final legacyRaw = prefs.getString(_legacyConfigKey);
+      if (legacyRaw != null && legacyRaw.isNotEmpty) {
+        final legacy =
+            ApiConfig.fromJson(jsonDecode(legacyRaw) as Map<String, dynamic>);
+        if (legacy.isConfigured) {
+          final migrated = legacy.copyWith(
+            id: generateRandomIdString(length: 8, prefix: 'api_'),
+            name: 'API Utama',
+            customFields: legacy.customFields.isEmpty
+                ? defaultApiFields()
+                : legacy.customFields,
+          );
+          final store = ApiStore(profiles: [migrated], activeId: migrated.id);
+          await saveStore(store);
+          return store;
+        }
       }
     } catch (_) {}
-    return const ApiConfig();
+    return const ApiStore();
   }
 
-  Future<void> saveConfig(ApiConfig config) async {
+  Future<void> saveStore(ApiStore store) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_configKey, jsonEncode(config.toJson()));
+    await prefs.setString(_storeKey, jsonEncode(store.toJson()));
+  }
+
+  Future<ApiConfig?> loadActiveConfig() async {
+    final store = await loadStore();
+    return store.activeProfile;
+  }
+
+  /// Adds a new profile or updates an existing one by ID.
+  /// If [setActive] is true (or this is the first profile), it becomes the only active API.
+  Future<ApiStore> upsertProfile(
+    ApiConfig profile, {
+    bool setActive = false,
+  }) async {
+    final store = await loadStore();
+    final id = profile.id.trim().isEmpty
+        ? generateRandomIdString(length: 8, prefix: 'api_')
+        : profile.id;
+    final normalized = profile.copyWith(id: id);
+
+    final nextList = List<ApiConfig>.from(store.profiles);
+    final idx = nextList.indexWhere((p) => p.id == id);
+    if (idx >= 0) {
+      nextList[idx] = normalized;
+    } else {
+      nextList.add(normalized);
+    }
+
+    final shouldActivate = setActive || store.profiles.isEmpty;
+    final nextStore = ApiStore(
+      profiles: nextList,
+      activeId: shouldActivate ? id : store.activeId,
+    );
+    await saveStore(nextStore);
+    return nextStore;
+  }
+
+  /// Sets exactly ONE active API profile (pass null to deactivate all / offline mode).
+  Future<ApiStore> setActiveProfile(String? profileId) async {
+    final store = await loadStore();
+    final validId = (profileId != null &&
+            store.profiles.any((p) => p.id == profileId))
+        ? profileId
+        : null;
+    final nextStore = store.copyWith(
+      activeId: validId,
+      clearActive: validId == null,
+    );
+    await saveStore(nextStore);
+    return nextStore;
+  }
+
+  Future<ApiStore> deleteProfile(String profileId) async {
+    final store = await loadStore();
+    final nextList = store.profiles.where((p) => p.id != profileId).toList();
+    final nextActive = store.activeId == profileId ? null : store.activeId;
+    final nextStore = ApiStore(
+      profiles: nextList,
+      activeId: nextActive,
+    );
+    await saveStore(nextStore);
+    return nextStore;
+  }
+
+  /// Builds dynamic payload map from [config.customFields].
+  /// Supports scanValue, randomString (ID generator), staticValue (with template tokens),
+  /// timestamp, scanType, and note.
+  Map<String, dynamic> buildPayload(
+    ScanEntry entry,
+    ApiConfig config, {
+    String Function(String prefix)? randomGenerator,
+  }) {
+    final gen = randomGenerator ??
+        (prefix) => generateRandomIdString(length: 10, prefix: prefix);
+
+    if (config.customFields.isEmpty) {
+      return entry.toApiPayload();
+    }
+
+    final payload = <String, dynamic>{};
+    for (final field in config.customFields) {
+      final key = field.key.trim();
+      if (key.isEmpty) continue;
+
+      switch (field.type) {
+        case ApiFieldType.scanValue:
+          payload[key] = entry.text;
+          break;
+        case ApiFieldType.randomString:
+          payload[key] = gen(field.value);
+          break;
+        case ApiFieldType.timestamp:
+          payload[key] = entry.createdAt.toIso8601String();
+          break;
+        case ApiFieldType.scanType:
+          payload[key] = entry.scanType;
+          break;
+        case ApiFieldType.note:
+          payload[key] = entry.note;
+          break;
+        case ApiFieldType.staticValue:
+          payload[key] = _expandTemplate(field.value, entry, gen);
+          break;
+      }
+    }
+
+    return payload.isEmpty ? entry.toApiPayload() : payload;
+  }
+
+  String _expandTemplate(
+    String template,
+    ScanEntry entry,
+    String Function(String prefix) gen,
+  ) {
+    var out = template
+        .replaceAll('{{value}}', entry.text)
+        .replaceAll('{{scan}}', entry.text)
+        .replaceAll('{{scan_type}}', entry.scanType)
+        .replaceAll('{{note}}', entry.note)
+        .replaceAll('{{timestamp}}', entry.createdAt.toIso8601String());
+    if (out.contains('{{random_id}}')) {
+      out = out.replaceAll('{{random_id}}', gen(''));
+    }
+    return out;
   }
 
   Uri buildGetUri(String baseUrl, Map<String, dynamic> payload) {
@@ -51,8 +194,17 @@ class ApiService {
     ScanEntry entry, {
     ApiConfig? overrideConfig,
   }) async {
-    final config = overrideConfig ?? await loadConfig();
-    return sendPayload(entry.toApiPayload(), config);
+    final config = overrideConfig ?? await loadActiveConfig();
+    if (config == null) {
+      return const ApiSendResult(
+        success: false,
+        statusCode: 0,
+        message: 'Belum ada API yang aktif. Pilih 1 API di Pengaturan REST API.',
+        responseBody: '',
+      );
+    }
+    final payload = buildPayload(entry, config);
+    return sendPayload(payload, config);
   }
 
   Future<ApiSendResult> sendPayload(
@@ -63,7 +215,8 @@ class ApiService {
       return const ApiSendResult(
         success: false,
         statusCode: 0,
-        message: 'URL REST API belum diatur (harus diawali http:// atau https://).',
+        message:
+            'URL REST API belum valid (harus diawali http:// atau https://).',
         responseBody: '',
       );
     }

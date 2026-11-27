@@ -1,3 +1,5 @@
+export 'api_config.dart';
+
 enum OcrFilterMode {
   all,
   numbersOnly,
@@ -155,61 +157,6 @@ class ScanEntry {
   }
 }
 
-class ApiConfig {
-  final String endpointUrl;
-  final String method; // 'POST' or 'GET'
-  final String headerKey;
-  final String headerValue;
-  final bool autoSend;
-
-  const ApiConfig({
-    this.endpointUrl = '',
-    this.method = 'POST',
-    this.headerKey = '',
-    this.headerValue = '',
-    this.autoSend = false,
-  });
-
-  bool get isConfigured =>
-      endpointUrl.trim().startsWith('http://') ||
-      endpointUrl.trim().startsWith('https://');
-
-  ApiConfig copyWith({
-    String? endpointUrl,
-    String? method,
-    String? headerKey,
-    String? headerValue,
-    bool? autoSend,
-  }) {
-    return ApiConfig(
-      endpointUrl: endpointUrl ?? this.endpointUrl,
-      method: method ?? this.method,
-      headerKey: headerKey ?? this.headerKey,
-      headerValue: headerValue ?? this.headerValue,
-      autoSend: autoSend ?? this.autoSend,
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-        'endpointUrl': endpointUrl,
-        'method': method,
-        'headerKey': headerKey,
-        'headerValue': headerValue,
-        'autoSend': autoSend,
-      };
-
-  factory ApiConfig.fromJson(Map<String, dynamic> map) {
-    final m = ((map['method'] as String?) ?? 'POST').toUpperCase();
-    return ApiConfig(
-      endpointUrl: (map['endpointUrl'] as String?) ?? '',
-      method: m == 'GET' ? 'GET' : 'POST',
-      headerKey: (map['headerKey'] as String?) ?? '',
-      headerValue: (map['headerValue'] as String?) ?? '',
-      autoSend: (map['autoSend'] as bool?) ?? false,
-    );
-  }
-}
-
 String _csvEscape(String value) {
   final escaped = value.replaceAll('"', '""');
   if (escaped.contains(',') ||
@@ -236,9 +183,8 @@ String buildCsvContent(List<ScanEntry> entries) {
   for (int i = 0; i < entries.length; i++) {
     final e = entries[i];
     final fileName = e.imagePath != null ? e.imagePath!.split('/').last : '';
-    final apiState = e.apiSynced
-        ? 'SENT (${e.apiStatusCode ?? 200})'
-        : 'LOCAL';
+    final apiState =
+        e.apiSynced ? 'SENT (${e.apiStatusCode ?? 200})' : 'LOCAL';
     final row = [
       (i + 1).toString(),
       _csvEscape(formatTimestamp(e.createdAt)),

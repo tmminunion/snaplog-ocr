@@ -21,7 +21,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final ApiService _apiService = ApiService();
   final TextEditingController _searchCtrl = TextEditingController();
 
-  ApiConfig _apiConfig = const ApiConfig();
+  ApiConfig? _activeApi;
   String _searchQuery = '';
   bool _isBatchSyncing = false;
 
@@ -30,12 +30,12 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _repo.addListener(_onRepoChanged);
     _repo.load();
-    _loadApiConfig();
+    _loadActiveApi();
   }
 
-  Future<void> _loadApiConfig() async {
-    final cfg = await _apiService.loadConfig();
-    if (mounted) setState(() => _apiConfig = cfg);
+  Future<void> _loadActiveApi() async {
+    final cfg = await _apiService.loadActiveConfig();
+    if (mounted) setState(() => _activeApi = cfg);
   }
 
   void _onRepoChanged() {
@@ -50,6 +50,8 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  bool get _hasActiveApi => _activeApi != null && _activeApi!.isConfigured;
+
   List<ScanEntry> get _filteredEntries {
     final q = _searchQuery.trim().toLowerCase();
     if (q.isEmpty) return _repo.entries;
@@ -61,19 +63,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openApiSettings() async {
-    final updated = await Navigator.of(context).push<ApiConfig>(
+    await Navigator.of(context).push<void>(
       MaterialPageRoute(builder: (_) => const ApiSettingsScreen()),
     );
-    if (updated != null && mounted) {
-      setState(() => _apiConfig = updated);
-    } else {
-      await _loadApiConfig();
-    }
+    await _loadActiveApi();
   }
 
   Future<void> _handleSavedScan(ScanEntry entry) async {
     await _repo.addEntry(entry);
-    if (_apiConfig.isConfigured && _apiConfig.autoSend) {
+    if (_hasActiveApi && _activeApi!.autoSend) {
       await _sendSingleEntry(entry, silentIfMissing: true, showToast: false);
     }
   }
@@ -94,11 +92,12 @@ class _HomeScreenState extends State<HomeScreen> {
     bool silentIfMissing = false,
     bool showToast = true,
   }) async {
-    if (!_apiConfig.isConfigured) {
+    final active = _activeApi;
+    if (active == null || !active.isConfigured) {
       if (!silentIfMissing && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Atur URL REST API dulu di Pengaturan API.'),
+            content: const Text('Pilih 1 REST API aktif dulu di Pengaturan API.'),
             action: SnackBarAction(
               label: 'Atur',
               onPressed: _openApiSettings,
@@ -109,7 +108,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return false;
     }
 
-    final res = await _apiService.sendEntry(entry, overrideConfig: _apiConfig);
+    final res = await _apiService.sendEntry(entry, overrideConfig: active);
     await _repo.updateEntry(
       entry.copyWith(
         apiSynced: res.success,
@@ -122,7 +121,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (showToast && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${res.message} — ${entry.text}'),
+          content: Text('[${active.name}] ${res.message} — ${entry.text}'),
           backgroundColor:
               res.success ? const Color(0xFF0F766E) : const Color(0xFFB91C1C),
         ),
@@ -133,7 +132,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _syncAllPending() async {
     if (_isBatchSyncing) return;
-    if (!_apiConfig.isConfigured) {
+    final active = _activeApi;
+    if (active == null || !active.isConfigured) {
       await _openApiSettings();
       return;
     }
@@ -149,8 +149,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isBatchSyncing = true);
     int okCount = 0;
     for (final entry in pending) {
-      final res =
-          await _apiService.sendEntry(entry, overrideConfig: _apiConfig);
+      final res = await _apiService.sendEntry(entry, overrideConfig: active);
       if (res.success) okCount += 1;
       await _repo.updateEntry(
         entry.copyWith(
@@ -166,7 +165,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Sync API (${_apiConfig.method}): $okCount/${pending.length} berhasil.',
+            'Sync ${active.name} (${active.method}): $okCount/${pending.length} berhasil.',
           ),
           backgroundColor:
               okCount > 0 ? const Color(0xFF0F766E) : const Color(0xFFB91C1C),
@@ -198,6 +197,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final textCtrl = TextEditingController(text: entry.text);
     final noteCtrl = TextEditingController(text: entry.note);
     bool sending = false;
+    final methodLabel = _activeApi?.method ?? 'API';
 
     showModalBottomSheet<void>(
       context: context,
@@ -380,7 +380,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               )
                             : const Icon(Icons.cloud_upload_rounded, size: 18),
                         label: Text(
-                          'Kirim ${_apiConfig.method}',
+                          'Kirim $methodLabel',
                           style: const TextStyle(fontWeight: FontWeight.w800),
                         ),
                         style: OutlinedButton.styleFrom(
@@ -506,13 +506,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   )
                 : Icon(
                     Icons.cloud_upload_outlined,
-                    color: _apiConfig.isConfigured
+                    color: _hasActiveApi
                         ? const Color(0xFF00E5FF)
                         : const Color(0xFF64748B),
                   ),
           ),
           IconButton(
-            tooltip: 'Pengaturan REST API',
+            tooltip: 'Daftar REST API',
             onPressed: _openApiSettings,
             icon: const Icon(
               Icons.tune_rounded,
@@ -614,9 +614,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildSummaryBar() {
-    final apiStatus = _apiConfig.isConfigured
-        ? '${_apiConfig.method}${_apiConfig.autoSend ? ' • AUTO' : ''}'
-        : 'OFFLINE';
+    final active = _activeApi;
+    final apiTitle = _hasActiveApi ? active!.name : 'OFFLINE';
+    final apiSub = _hasActiveApi
+        ? 'API • ${active!.method}${active.autoSend ? ' AUTO' : ''}'
+        : 'API';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
@@ -635,6 +637,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(width: 8),
           Expanded(
+            flex: 2,
             child: InkWell(
               onTap: _openApiSettings,
               borderRadius: BorderRadius.circular(12),
@@ -645,7 +648,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: const Color(0xFF11182C),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: _apiConfig.isConfigured
+                    color: _hasActiveApi
                         ? const Color(0xFFFFB300).withAlpha(110)
                         : const Color(0xFF1E293B),
                   ),
@@ -653,9 +656,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'API',
-                      style: TextStyle(
+                    Text(
+                      apiSub,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
                         color: Color(0xFF64748B),
                         fontSize: 9.5,
                         fontWeight: FontWeight.w800,
@@ -663,11 +668,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      apiStatus,
+                      apiTitle,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Color(0xFFFFB300),
-                        fontSize: 13,
+                        fontSize: 13.5,
                         fontWeight: FontWeight.w900,
                       ),
                     ),

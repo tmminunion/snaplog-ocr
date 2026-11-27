@@ -37,18 +37,15 @@ void main() {
     expect(f2.shouldCommit, isFalse);
     expect(f2.streak, equals(2));
 
-    // Different reading resets streak
     final mismatch = tracker.feed('SN-8890', now: t0.add(const Duration(milliseconds: 500)));
     expect(mismatch.shouldCommit, isFalse);
     expect(mismatch.streak, equals(1));
 
-    // 3 identical frames commit
     expect(tracker.feed('SN-8899', now: t0.add(const Duration(milliseconds: 750))).streak, equals(1));
     expect(tracker.feed('SN-8899', now: t0.add(const Duration(milliseconds: 1000))).streak, equals(2));
     final f3 = tracker.feed('SN-8899', now: t0.add(const Duration(milliseconds: 1250)));
     expect(f3.shouldCommit, isTrue);
 
-    // Same value within cooldown does not re-commit
     final dup = tracker.feed('SN-8899', now: t0.add(const Duration(milliseconds: 1800)));
     expect(dup.shouldCommit, isFalse);
     expect(dup.inCooldown, isTrue);
@@ -62,6 +59,92 @@ void main() {
     expect(tracker.shouldAccept('QR-100', now: t0.add(const Duration(milliseconds: 900))), isFalse);
     expect(tracker.shouldAccept('QR-200', now: t0.add(const Duration(milliseconds: 1000))), isTrue);
     expect(tracker.shouldAccept('QR-200', now: t0.add(const Duration(milliseconds: 3500))), isTrue);
+  });
+
+  test('ApiService manages multiple APIs with single active profile (CRUD)', () async {
+    SharedPreferences.setMockInitialValues({});
+    final api = ApiService();
+
+    final s1 = await api.upsertProfile(
+      const ApiConfig(
+        id: 'api_1',
+        name: 'Server A',
+        endpointUrl: 'https://example.com/a',
+        method: 'POST',
+      ),
+    );
+    expect(s1.profiles.length, equals(1));
+    expect(s1.activeId, equals('api_1'));
+
+    final s2 = await api.upsertProfile(
+      const ApiConfig(
+        id: 'api_2',
+        name: 'Server B',
+        endpointUrl: 'https://example.com/b',
+        method: 'GET',
+      ),
+    );
+    expect(s2.profiles.length, equals(2));
+    expect(s2.activeId, equals('api_1')); // Still only api_1 active
+
+    // Switch active to api_2
+    final s3 = await api.setActiveProfile('api_2');
+    expect(s3.activeProfile?.id, equals('api_2'));
+    expect(s3.activeProfile?.method, equals('GET'));
+
+    // Edit api_2
+    final s4 = await api.upsertProfile(
+      s3.activeProfile!.copyWith(name: 'Server B Updated'),
+    );
+    expect(s4.activeProfile?.name, equals('Server B Updated'));
+
+    // Delete active profile clears activeId
+    final s5 = await api.deleteProfile('api_2');
+    expect(s5.profiles.length, equals(1));
+    expect(s5.activeId, isNull);
+  });
+
+  test('ApiService builds dynamic custom payload with ID generator & templates', () {
+    final api = ApiService();
+    final entry = ScanEntry(
+      id: 'local_1',
+      text: 'PART-7788',
+      rawText: 'PART-7788',
+      note: 'Shift 1',
+      filterMode: 'serialCode',
+      scanType: 'qr',
+      barcodeFormat: 'QR_CODE',
+      imagePath: null,
+      createdAt: DateTime(2026, 11, 27, 21, 30, 0),
+    );
+
+    const cfg = ApiConfig(
+      id: 'api_custom',
+      name: 'Custom',
+      endpointUrl: 'https://example.com/hook',
+      method: 'POST',
+      customFields: [
+        ApiCustomField(key: 'req_id', type: ApiFieldType.randomString, value: 'SL-'),
+        ApiCustomField(key: 'kode', type: ApiFieldType.scanValue),
+        ApiCustomField(key: 'line', type: ApiFieldType.staticValue, value: 'UB-ASSY-{{value}}'),
+        ApiCustomField(key: 'jenis', type: ApiFieldType.scanType),
+      ],
+    );
+
+    final payload = api.buildPayload(
+      entry,
+      cfg,
+      randomGenerator: (prefix) => '${prefix}ABCD1234',
+    );
+
+    expect(payload['req_id'], equals('SL-ABCD1234'));
+    expect(payload['kode'], equals('PART-7788'));
+    expect(payload['line'], equals('UB-ASSY-PART-7788'));
+    expect(payload['jenis'], equals('qr'));
+
+    final generated = generateRandomIdString(length: 12, prefix: 'ID-');
+    expect(generated.startsWith('ID-'), isTrue);
+    expect(generated.length, equals(15));
   });
 
   test('buildCsvContent includes scanType, barcodeFormat, and API status without category', () {
@@ -91,7 +174,7 @@ void main() {
   test('ApiService builds GET query URI preserving existing params', () {
     final api = ApiService();
     final uri = api.buildGetUri(
-      'https://api.example.com/hook?token=abc',
+      'https://example.com/hook?token=abc',
       {'value': '12345', 'scan_type': 'barcode'},
     );
     expect(uri.queryParameters['token'], equals('abc'));
