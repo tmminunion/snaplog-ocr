@@ -12,6 +12,8 @@ on:
         type: choice
         default: 'internal'
         options:
+          - all
+          - testing
           - internal
           - alpha
           - beta
@@ -299,7 +301,7 @@ jobs:
           fi
 
       - name: Publish AAB to Google Play Store (with Release Notes)
-        if: github.event_name == 'workflow_dispatch' && inputs.play_track != 'none' && steps.play_prep.outputs.has_notes == 'true'
+        if: github.event_name == 'workflow_dispatch' && inputs.play_track != 'none' && inputs.play_track != 'all' && inputs.play_track != 'testing' && steps.play_prep.outputs.has_notes == 'true'
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
@@ -310,7 +312,7 @@ jobs:
           whatsNewDirectory: /tmp/play-whatsnew
 
       - name: Publish AAB to Google Play Store
-        if: github.event_name == 'workflow_dispatch' && inputs.play_track != 'none' && steps.play_prep.outputs.has_notes != 'true'
+        if: github.event_name == 'workflow_dispatch' && inputs.play_track != 'none' && inputs.play_track != 'all' && inputs.play_track != 'testing' && steps.play_prep.outputs.has_notes != 'true'
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
@@ -318,6 +320,94 @@ jobs:
           releaseFiles: Scan2API-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab
           tracks: ${{ inputs.play_track }}
           status: ${{ inputs.play_status }}
+
+      - name: Publish AAB to Multiple Play Store Tracks (Internal / Alpha / Beta / Production)
+        if: github.event_name == 'workflow_dispatch' && (inputs.play_track == 'all' || inputs.play_track == 'testing')
+        env:
+          SA_JSON: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
+          PLAY_TRACK_MODE: ${{ inputs.play_track }}
+          PLAY_STATUS: ${{ inputs.play_status }}
+          RAW_NOTES: ${{ inputs.release_notes }}
+          AAB_FILE: Scan2API-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab
+          VER_NAME: ${{ steps.meta.outputs.version_name }}
+        run: |
+          python3 -m pip install --quiet google-auth requests
+          python3 - <<'PYEOF'
+          import json
+          import os
+          import requests
+          from google.auth.transport.requests import Request
+          from google.oauth2 import service_account
+
+          pkg = "id.nufat.snaplog_ocr"
+          mode = os.environ["PLAY_TRACK_MODE"]
+          status = os.environ.get("PLAY_STATUS", "completed")
+          notes = (os.environ.get("RAW_NOTES") or "").strip()
+          aab_path = os.environ["AAB_FILE"]
+          ver_name = os.environ["VER_NAME"]
+
+          tracks = ["internal", "alpha", "beta", "production"] if mode == "all" else ["internal", "alpha", "beta"]
+
+          creds = service_account.Credentials.from_service_account_info(
+              json.loads(os.environ["SA_JSON"]),
+              scopes=["https://www.googleapis.com/auth/androidpublisher"],
+          )
+          creds.refresh(Request())
+          auth_hdr = {"Authorization": f"Bearer {creds.token}"}
+          base = f"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{pkg}/edits"
+          upload_base = f"https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications/{pkg}/edits"
+
+          r_edit = requests.post(base, headers={**auth_hdr, "Content-Type": "application/json"}, json={}, timeout=30)
+          if not r_edit.ok:
+              raise SystemExit(f"Gagal membuka Play Store edit ({r_edit.status_code}): {r_edit.text}")
+          edit_id = r_edit.json()["id"]
+
+          with open(aab_path, "rb") as f:
+              r_up = requests.post(
+                  f"{upload_base}/{edit_id}/bundles?uploadType=media",
+                  headers={**auth_hdr, "Content-Type": "application/octet-stream"},
+                  data=f,
+                  timeout=300,
+              )
+          if not r_up.ok:
+              raise SystemExit(f"Gagal upload AAB ({r_up.status_code}): {r_up.text}")
+          vcode = str(r_up.json()["versionCode"])
+          print(f"Uploaded AAB successfully! versionCode={vcode}")
+
+          def put_tracks(rel_status):
+              for tr in tracks:
+                  rel = {
+                      "name": f"{ver_name} ({vcode})",
+                      "versionCodes": [vcode],
+                      "status": rel_status,
+                  }
+                  if notes:
+                      rel["releaseNotes"] = [{"language": "id", "text": notes[:500]}]
+                  r_tr = requests.put(
+                      f"{base}/{edit_id}/tracks/{tr}",
+                      headers={**auth_hdr, "Content-Type": "application/json"},
+                      json={"track": tr, "releases": [rel]},
+                      timeout=30,
+                  )
+                  if not r_tr.ok:
+                      return False, tr, r_tr.status_code, r_tr.text
+                  print(f"Assigned versionCode={vcode} to track={tr} (status={rel_status})")
+              return True, None, 200, ""
+
+          ok, fail_tr, fail_code, fail_txt = put_tracks(status)
+          if not ok and status != "draft" and "draft" in fail_txt.lower():
+              print(f"App masih berstatus Draft di Play Console; otomatis fallback ke status=draft...")
+              ok, fail_tr, fail_code, fail_txt = put_tracks("draft")
+          if not ok:
+              raise SystemExit(f"Gagal set track {fail_tr} ({fail_code}): {fail_txt}")
+
+          r_commit = requests.post(f"{base}/{edit_id}:commit", headers=auth_hdr, timeout=30)
+          if r_commit.status_code == 400 and "changesNotSentForReview" in r_commit.text:
+              r_commit = requests.post(f"{base}/{edit_id}:commit?changesNotSentForReview=true", headers=auth_hdr, timeout=30)
+          if not r_commit.ok:
+              raise SystemExit(f"Gagal commit edit ({r_commit.status_code}): {r_commit.text}")
+          print(f"Sukses publish versionCode={vcode} ke tracks: {', '.join(tracks)}")
+          PYEOF
 
       - name: Sync Global Store Listing Description to Google Play
         if: github.event_name == 'workflow_dispatch' && inputs.play_track != 'none'
