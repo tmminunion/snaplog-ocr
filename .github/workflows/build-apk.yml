@@ -1,0 +1,161 @@
+name: Build SnapLog OCR Android APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: build-snaplog-ocr-apk-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build-apk:
+    name: Analyze, Test & Build SnapLog OCR Release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Flutter (Stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Read Version Metadata
+        id: meta
+        run: |
+          VER_RAW=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          BASE_NAME=${VER_RAW%%+*}
+          BASE_CODE=${VER_RAW##*+}
+          IFS='.' read -r VER_MAJOR VER_MINOR VER_PATCH <<< "$BASE_NAME"
+          VER_MAJOR=${VER_MAJOR:-1}
+          VER_MINOR=${VER_MINOR:-0}
+          VER_PATCH=${VER_PATCH:-0}
+          TOTAL_STEPS=$(( 10#$VER_MAJOR * 1000 + 10#$VER_MINOR * 100 + 10#$VER_PATCH + GITHUB_RUN_NUMBER ))
+          CALC_MAJOR=$(( TOTAL_STEPS / 1000 ))
+          REM_MAJOR=$(( TOTAL_STEPS % 1000 ))
+          CALC_MINOR=$(( REM_MAJOR / 100 ))
+          CALC_PATCH=$(( REM_MAJOR % 100 ))
+          VER_NAME="${CALC_MAJOR}.${CALC_MINOR}.${CALC_PATCH}"
+          VER_CODE=$(( 10#$BASE_CODE + GITHUB_RUN_NUMBER ))
+          echo "Resolved build version: v${VER_NAME} (code ${VER_CODE})"
+          echo "version_name=${VER_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VER_CODE}" >> "$GITHUB_OUTPUT"
+
+      - name: Bootstrap Android Project
+        run: |
+          rm -rf android /tmp/snaplog_tpl
+          flutter create /tmp/snaplog_tpl --project-name snaplog_ocr --org id.nufat --platforms=android
+          cp -r /tmp/snaplog_tpl/android ./android
+          rm -rf /tmp/snaplog_tpl
+
+          python3 - <<'PYEOF'
+          import os
+          import re
+
+          mpath = "android/app/src/main/AndroidManifest.xml"
+          m = open(mpath, "r", encoding="utf-8").read()
+          perms = (
+              '<uses-permission android:name="android.permission.CAMERA"/>\n'
+              '    <uses-feature android:name="android.hardware.camera" android:required="false"/>\n'
+          )
+          if "android.permission.CAMERA" not in m:
+              m = m.replace("<application", perms + "    <application", 1)
+          m = re.sub(r'android:label="[^"]*"', 'android:label="SnapLog OCR"', m)
+          open(mpath, "w", encoding="utf-8").write(m)
+
+          # Ensure minSdk >= 21 for camera & ML Kit
+          kts_path = "android/app/build.gradle.kts"
+          if os.path.exists(kts_path):
+              txt = open(kts_path, "r", encoding="utf-8").read()
+              txt = txt.replace("minSdk = flutter.minSdkVersion", "minSdk = maxOf(21, flutter.minSdkVersion)")
+              open(kts_path, "w", encoding="utf-8").write(txt)
+          PYEOF
+
+      - name: Install Dependencies & Generate App Icons
+        run: |
+          flutter pub get
+          dart run flutter_launcher_icons
+
+      - name: Static Analysis
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run Unit Tests
+        run: flutter test
+
+      - name: Build Release APK
+        env:
+          GRADLE_OPTS: -Dorg.gradle.internal.http.retry.maxRetries=5 -Dorg.gradle.internal.http.retry.initialBackoff=3000
+        run: |
+          for attempt in 1 2 3; do
+            if flutter build apk --release \
+              --build-name="${{ steps.meta.outputs.version_name }}" \
+              --build-number="${{ steps.meta.outputs.version_code }}"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "Retrying APK build after transient network/Maven error (attempt $attempt)..."
+            sleep 10
+          done
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            "SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.apk"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}
+          name: SnapLog OCR v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }})
+          body: |
+            Build otomatis Android Release APK untuk **SnapLog OCR — Offline Camera Field Logger** (`v${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}`).
+            Unduh file `.apk` di bawah untuk langsung install di perangkat Android.
+          files: SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.apk
+          make_latest: true
+
+      - name: Send APK Link to Telegram
+        if: always()
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          APK_FILE: "SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.apk"
+          RELEASE_URL: "https://github.com/${{ github.repository }}/releases/tag/v${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}"
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "Secret Telegram belum diset; melewati notifikasi."
+            exit 0
+          fi
+
+          if [ -f "$APK_FILE" ]; then
+            APK_MB=$(awk "BEGIN {printf \"%.2f\", $(wc -c < "$APK_FILE")/1048576}")
+            MSG=$(printf "🚀 SnapLog OCR v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }}) berhasil dibuild!\n📱 APK: %s (%s MB)\n📥 Release: %s" "${APK_FILE}" "${APK_MB}" "${RELEASE_URL}")
+          else
+            MSG="❌ Build SnapLog OCR v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }}) gagal menghasilkan file APK."
+          fi
+
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${CHAT_ID}" \
+            --data-urlencode "text=${MSG}" \
+            --data-urlencode "disable_web_page_preview=true" > /dev/null
+
+      - name: Cleanup Temporary Files & Workflow Artifacts
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          rm -rf build android /tmp/snaplog_tpl *.apk
+          ARTIFACT_IDS=$(gh api "repos/${{ github.repository }}/actions/artifacts?per_page=100" --jq '.artifacts[].id' 2>/dev/null || true)
+          for AID in $ARTIFACT_IDS; do
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/${AID}" >/dev/null 2>&1 || true
+          done
