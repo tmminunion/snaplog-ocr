@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/scan_entry.dart';
+import '../services/api_service.dart';
 import '../services/log_repository.dart';
+import 'api_settings_screen.dart';
 import 'camera_scan_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -16,16 +18,25 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final LogRepository _repo = LogRepository();
+  final ApiService _apiService = ApiService();
   final TextEditingController _searchCtrl = TextEditingController();
 
+  ApiConfig _apiConfig = const ApiConfig();
   String _selectedCategory = 'Semua';
   String _searchQuery = '';
+  bool _isBatchSyncing = false;
 
   @override
   void initState() {
     super.initState();
     _repo.addListener(_onRepoChanged);
     _repo.load();
+    _loadApiConfig();
+  }
+
+  Future<void> _loadApiConfig() async {
+    final cfg = await _apiService.loadConfig();
+    if (mounted) setState(() => _apiConfig = cfg);
   }
 
   void _onRepoChanged() {
@@ -48,25 +59,125 @@ class _HomeScreenState extends State<HomeScreen> {
       final textMatch = q.isEmpty ||
           e.text.toLowerCase().contains(q) ||
           e.note.toLowerCase().contains(q) ||
-          e.category.toLowerCase().contains(q);
+          e.category.toLowerCase().contains(q) ||
+          e.scanType.toLowerCase().contains(q);
       return catMatch && textMatch;
     }).toList();
   }
 
-  Future<void> _openScanner() async {
-    final entry = await Navigator.of(context).push<ScanEntry>(
-      MaterialPageRoute(builder: (_) => const CameraScanScreen()),
+  Future<void> _openApiSettings() async {
+    final updated = await Navigator.of(context).push<ApiConfig>(
+      MaterialPageRoute(builder: (_) => const ApiSettingsScreen()),
     );
-    if (entry != null) {
-      await _repo.addEntry(entry);
-      if (mounted) {
+    if (updated != null && mounted) {
+      setState(() => _apiConfig = updated);
+    } else {
+      await _loadApiConfig();
+    }
+  }
+
+  Future<void> _openScanner({ScannerMode mode = ScannerMode.ocr}) async {
+    final entry = await Navigator.of(context).push<ScanEntry>(
+      MaterialPageRoute(builder: (_) => CameraScanScreen(initialMode: mode)),
+    );
+    if (entry == null) return;
+
+    await _repo.addEntry(entry);
+
+    if (_apiConfig.isConfigured && _apiConfig.autoSend) {
+      await _sendSingleEntry(entry, silentIfMissing: true);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Tersimpan: ${entry.text}'),
+          backgroundColor: const Color(0xFF0F766E),
+        ),
+      );
+    }
+  }
+
+  Future<bool> _sendSingleEntry(
+    ScanEntry entry, {
+    bool silentIfMissing = false,
+  }) async {
+    if (!_apiConfig.isConfigured) {
+      if (!silentIfMissing && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Tersimpan: ${entry.text}'),
-            backgroundColor: const Color(0xFF0F766E),
+            content: const Text('Atur URL REST API dulu di ikon Cloud Settings.'),
+            action: SnackBarAction(
+              label: 'Atur',
+              onPressed: _openApiSettings,
+            ),
           ),
         );
       }
+      return false;
+    }
+
+    final res = await _apiService.sendEntry(entry, overrideConfig: _apiConfig);
+    await _repo.updateEntry(
+      entry.copyWith(
+        apiSynced: res.success,
+        apiStatusCode: res.statusCode,
+        apiLastResponse:
+            res.responseBody.isNotEmpty ? res.responseBody : res.message,
+      ),
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${res.message} — ${entry.text}'),
+          backgroundColor:
+              res.success ? const Color(0xFF0F766E) : const Color(0xFFB91C1C),
+        ),
+      );
+    }
+    return res.success;
+  }
+
+  Future<void> _syncAllPending() async {
+    if (_isBatchSyncing) return;
+    if (!_apiConfig.isConfigured) {
+      await _openApiSettings();
+      return;
+    }
+
+    final pending = _repo.entries.where((e) => !e.apiSynced).toList();
+    if (pending.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Semua data sudah terkirim ke REST API.')),
+      );
+      return;
+    }
+
+    setState(() => _isBatchSyncing = true);
+    int okCount = 0;
+    for (final entry in pending) {
+      final res =
+          await _apiService.sendEntry(entry, overrideConfig: _apiConfig);
+      if (res.success) okCount += 1;
+      await _repo.updateEntry(
+        entry.copyWith(
+          apiSynced: res.success,
+          apiStatusCode: res.statusCode,
+          apiLastResponse:
+              res.responseBody.isNotEmpty ? res.responseBody : res.message,
+        ),
+      );
+    }
+    if (mounted) {
+      setState(() => _isBatchSyncing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Sync API (${_apiConfig.method}): $okCount/${pending.length} berhasil dikirim.',
+          ),
+          backgroundColor:
+              okCount > 0 ? const Color(0xFF0F766E) : const Color(0xFFB91C1C),
+        ),
+      );
     }
   }
 
@@ -93,6 +204,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final textCtrl = TextEditingController(text: entry.text);
     final noteCtrl = TextEditingController(text: entry.note);
     String cat = entry.category;
+    bool sending = false;
 
     showModalBottomSheet<void>(
       context: context,
@@ -124,6 +236,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    _typeChip(entry),
                     const Spacer(),
                     IconButton(
                       tooltip: 'Salin teks',
@@ -135,7 +249,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       onPressed: () {
                         Clipboard.setData(ClipboardData(text: entry.text));
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Teks disalin ke clipboard')),
+                          const SnackBar(
+                            content: Text('Teks disalin ke clipboard'),
+                          ),
                         );
                       },
                     ),
@@ -153,13 +269,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
                 ),
-                if (entry.imagePath != null && File(entry.imagePath!).existsSync())
+                if (entry.imagePath != null &&
+                    File(entry.imagePath!).existsSync())
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(14),
                       child: Container(
-                        height: 170,
+                        height: 165,
                         width: double.infinity,
                         color: const Color(0xFF050914),
                         child: InteractiveViewer(
@@ -181,7 +298,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     fontWeight: FontWeight.w700,
                   ),
                   decoration: InputDecoration(
-                    labelText: 'Hasil OCR',
+                    labelText: 'Hasil Scan',
                     filled: true,
                     fillColor: const Color(0xFF0A0F1E),
                     border: OutlineInputBorder(
@@ -223,32 +340,104 @@ class _HomeScreenState extends State<HomeScreen> {
                     );
                   }).toList(),
                 ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () async {
-                      final updated = entry.copyWith(
-                        text: textCtrl.text.trim(),
-                        note: noteCtrl.text.trim(),
-                        category: cat,
-                      );
-                      await _repo.updateEntry(updated);
-                      if (ctx.mounted) Navigator.of(ctx).pop();
-                    },
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF00E5FF),
-                      foregroundColor: const Color(0xFF0A0F1E),
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                if (entry.apiLastResponse != null &&
+                    entry.apiLastResponse!.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0A0F1E),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: (entry.apiSynced
+                                ? const Color(0xFF00E676)
+                                : const Color(0xFFFF5252))
+                            .withAlpha(90),
                       ),
                     ),
-                    child: const Text(
-                      'Simpan Perubahan',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                    child: Text(
+                      'API (${entry.apiStatusCode ?? 0}): ${entry.apiLastResponse}',
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF94A3B8),
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                      ),
                     ),
                   ),
+                ],
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: sending
+                            ? null
+                            : () async {
+                                setModalState(() => sending = true);
+                                final updated = entry.copyWith(
+                                  text: textCtrl.text.trim(),
+                                  note: noteCtrl.text.trim(),
+                                  category: cat,
+                                );
+                                await _repo.updateEntry(updated);
+                                await _sendSingleEntry(updated);
+                                if (ctx.mounted) {
+                                  Navigator.of(ctx).pop();
+                                }
+                              },
+                        icon: sending
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.cloud_upload_rounded, size: 18),
+                        label: Text(
+                          'Kirim ${_apiConfig.method}',
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF00E676),
+                          side: const BorderSide(color: Color(0xFF00E676)),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () async {
+                          final updated = entry.copyWith(
+                            text: textCtrl.text.trim(),
+                            note: noteCtrl.text.trim(),
+                            category: cat,
+                          );
+                          await _repo.updateEntry(updated);
+                          if (ctx.mounted) Navigator.of(ctx).pop();
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF00E5FF),
+                          foregroundColor: const Color(0xFF0A0F1E),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          'Simpan',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -322,6 +511,33 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Kirim Pending ke REST API',
+            onPressed: _isBatchSyncing ? null : _syncAllPending,
+            icon: _isBatchSyncing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFF00E5FF),
+                    ),
+                  )
+                : Icon(
+                    Icons.cloud_upload_rounded,
+                    color: _apiConfig.isConfigured
+                        ? const Color(0xFF00E5FF)
+                        : const Color(0xFF64748B),
+                  ),
+          ),
+          IconButton(
+            tooltip: 'Pengaturan REST API (POST/GET)',
+            onPressed: _openApiSettings,
+            icon: const Icon(
+              Icons.settings_ethernet_rounded,
+              color: Color(0xFFFFB300),
+            ),
+          ),
+          IconButton(
             tooltip: 'Ekspor CSV (Excel)',
             onPressed: _exportCsv,
             icon: const Icon(
@@ -339,15 +555,33 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openScanner,
-        backgroundColor: const Color(0xFF00E5FF),
-        foregroundColor: const Color(0xFF0A0F1E),
-        icon: const Icon(Icons.camera_alt_rounded),
-        label: const Text(
-          'SCAN OCR',
-          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.8),
-        ),
+      floatingActionButton: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'fab_qr',
+            onPressed: () => _openScanner(mode: ScannerMode.qrBarcode),
+            backgroundColor: const Color(0xFF00E676),
+            foregroundColor: const Color(0xFF0A0F1E),
+            icon: const Icon(Icons.qr_code_scanner_rounded),
+            label: const Text(
+              'QR/BAR',
+              style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.6),
+            ),
+          ),
+          const SizedBox(width: 10),
+          FloatingActionButton.extended(
+            heroTag: 'fab_ocr',
+            onPressed: () => _openScanner(mode: ScannerMode.ocr),
+            backgroundColor: const Color(0xFF00E5FF),
+            foregroundColor: const Color(0xFF0A0F1E),
+            icon: const Icon(Icons.camera_alt_rounded),
+            label: const Text(
+              'SCAN OCR',
+              style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.6),
+            ),
+          ),
+        ],
       ),
       body: !_repo.isLoaded
           ? const Center(
@@ -374,6 +608,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildStatsBar() {
+    final apiStatus = _apiConfig.isConfigured
+        ? '${_apiConfig.method}${_apiConfig.autoSend ? ' AUTO' : ''}'
+        : 'OFFLINE';
+
     return Container(
       margin: const EdgeInsets.fromLTRB(14, 12, 14, 8),
       padding: const EdgeInsets.all(14),
@@ -400,10 +638,44 @@ class _HomeScreenState extends State<HomeScreen> {
             color: const Color(0xFF00E676),
           ),
           const SizedBox(width: 10),
-          _statBox(
-            label: 'ENGINE',
-            value: 'OFFLINE',
-            color: const Color(0xFFFFB300),
+          Expanded(
+            child: GestureDetector(
+              onTap: _openApiSettings,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0A0F1E).withAlpha(170),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFFFFB300).withAlpha(80),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'REST API',
+                      style: TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      apiStatus,
+                      style: const TextStyle(
+                        color: Color(0xFFFFB300),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -460,7 +732,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onChanged: (v) => setState(() => _searchQuery = v),
             style: const TextStyle(color: Colors.white, fontSize: 14),
             decoration: InputDecoration(
-              hintText: 'Cari angka, serial, atau catatan...',
+              hintText: 'Cari teks, QR/barcode, atau catatan...',
               hintStyle: const TextStyle(color: Color(0xFF64748B)),
               prefixIcon: const Icon(
                 Icons.search_rounded,
@@ -534,6 +806,37 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _typeChip(ScanEntry entry) {
+    final bool isQr = entry.scanType == 'qr';
+    final bool isBar = entry.scanType == 'barcode';
+    final color = isQr
+        ? const Color(0xFF00E676)
+        : isBar
+            ? const Color(0xFFFFB300)
+            : const Color(0xFF00E5FF);
+    final label = isQr
+        ? 'QR'
+        : isBar
+            ? 'BAR'
+            : 'OCR';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withAlpha(30),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 9.5,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
   Widget _buildLogTile(ScanEntry entry) {
     final hasPhoto =
         entry.imagePath != null && File(entry.imagePath!).existsSync();
@@ -553,17 +856,19 @@ class _HomeScreenState extends State<HomeScreen> {
             ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: Container(
-                width: 64,
-                height: 64,
+                width: 62,
+                height: 62,
                 color: const Color(0xFF050914),
                 child: hasPhoto
                     ? Image.file(
                         File(entry.imagePath!),
                         fit: BoxFit.cover,
                       )
-                    : const Icon(
-                        Icons.text_snippet_rounded,
-                        color: Color(0xFF475569),
+                    : Icon(
+                        entry.scanType == 'ocr'
+                            ? Icons.text_snippet_rounded
+                            : Icons.qr_code_2_rounded,
+                        color: const Color(0xFF475569),
                       ),
               ),
             ),
@@ -574,35 +879,29 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF00E5FF).withAlpha(28),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
+                      _typeChip(entry),
+                      const SizedBox(width: 6),
+                      Flexible(
                         child: Text(
                           entry.category,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            color: Color(0xFF00E5FF),
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF94A3B8),
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        formatTimestamp(entry.createdAt).substring(5, 16),
-                        style: const TextStyle(
-                          color: Color(0xFF64748B),
-                          fontSize: 11,
+                      const SizedBox(width: 6),
+                      if (entry.apiSynced)
+                        const Icon(
+                          Icons.cloud_done_rounded,
+                          size: 14,
+                          color: Color(0xFF00E676),
                         ),
-                      ),
                     ],
                   ),
-                  const SizedBox(height: 5),
+                  const SizedBox(height: 4),
                   Text(
                     entry.text,
                     maxLines: 2,
@@ -629,17 +928,16 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             IconButton(
-              tooltip: 'Salin',
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: entry.text));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Disalin: ${entry.text}')),
-                );
-              },
-              icon: const Icon(
-                Icons.copy_rounded,
-                color: Color(0xFF64748B),
-                size: 18,
+              tooltip: 'Kirim ke REST API',
+              onPressed: () => _sendSingleEntry(entry),
+              icon: Icon(
+                entry.apiSynced
+                    ? Icons.check_circle_rounded
+                    : Icons.send_rounded,
+                color: entry.apiSynced
+                    ? const Color(0xFF00E676)
+                    : const Color(0xFF00E5FF),
+                size: 19,
               ),
             ),
           ],
@@ -666,7 +964,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               child: const Icon(
-                Icons.document_scanner_rounded,
+                Icons.qr_code_scanner_rounded,
                 color: Color(0xFF00E5FF),
                 size: 34,
               ),
@@ -682,7 +980,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Tekan tombol SCAN OCR di bawah untuk membidik angka meteran, nomor seri, atau label secara offline.',
+              'Gunakan tombol SCAN OCR untuk teks/angka atau QR/BAR untuk QR Code & Barcode. Data bisa diekspor ke CSV atau dikirim via REST API POST/GET.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Color(0xFF94A3B8),

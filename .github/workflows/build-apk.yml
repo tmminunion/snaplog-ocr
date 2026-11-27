@@ -71,6 +71,7 @@ jobs:
           -keep class com.google.android.gms.internal.mlkit_** { *; }
           -keep class com.google.android.gms.vision.** { *; }
           -keep class com.google_mlkit_text_recognition.** { *; }
+          -keep class com.google_mlkit_barcode_scanning.** { *; }
           -keep class com.google_mlkit_commons.** { *; }
           EOF
 
@@ -81,7 +82,8 @@ jobs:
           mpath = "android/app/src/main/AndroidManifest.xml"
           m = open(mpath, "r", encoding="utf-8").read()
           perms = (
-              '<uses-permission android:name="android.permission.CAMERA"/>\n'
+              '<uses-permission android:name="android.permission.INTERNET"/>\n'
+              '    <uses-permission android:name="android.permission.CAMERA"/>\n'
               '    <uses-feature android:name="android.hardware.camera" android:required="false"/>\n'
           )
           if "android.permission.CAMERA" not in m:
@@ -143,7 +145,7 @@ jobs:
           tag_name: v${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}
           name: SnapLog OCR v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }})
           body: |
-            Build otomatis Android Release APK untuk **SnapLog OCR — Offline Camera Field Logger** (`v${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}`).
+            Build otomatis Android Release APK untuk **SnapLog OCR — Offline OCR, QR/Barcode & REST API POST/GET** (`v${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}`).
             Unduh file `.apk` di bawah untuk langsung install di perangkat Android.
           files: SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.apk
           make_latest: true

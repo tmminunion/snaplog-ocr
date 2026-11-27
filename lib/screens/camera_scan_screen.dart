@@ -10,7 +10,12 @@ import '../services/ocr_service.dart';
 import '../widgets/roi_overlay_painter.dart';
 
 class CameraScanScreen extends StatefulWidget {
-  const CameraScanScreen({super.key});
+  final ScannerMode initialMode;
+
+  const CameraScanScreen({
+    super.key,
+    this.initialMode = ScannerMode.ocr,
+  });
 
   @override
   State<CameraScanScreen> createState() => _CameraScanScreenState();
@@ -28,7 +33,8 @@ class _CameraScanScreenState extends State<CameraScanScreen>
   bool _isProcessing = false;
   bool _flashOn = false;
   bool _enhanceContrast = true;
-  bool _wideStripRoi = true; // true = single-line strip, false = medium box
+  bool _wideStripRoi = true;
+  late ScannerMode _scannerMode;
   OcrFilterMode _filterMode = OcrFilterMode.all;
 
   late final AnimationController _laserAnim;
@@ -36,6 +42,7 @@ class _CameraScanScreenState extends State<CameraScanScreen>
   @override
   void initState() {
     super.initState();
+    _scannerMode = widget.initialMode;
     _laserAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1800),
@@ -87,6 +94,12 @@ class _CameraScanScreenState extends State<CameraScanScreen>
   }
 
   Rect _computeRoiRect(Size size) {
+    if (_scannerMode == ScannerMode.qrBarcode) {
+      final boxSize = size.width * 0.72;
+      final left = (size.width - boxSize) / 2;
+      final top = (size.height - boxSize) * 0.38;
+      return Rect.fromLTWH(left, top, boxSize, boxSize);
+    }
     final width = size.width * 0.86;
     final height = _wideStripRoi ? size.height * 0.16 : size.height * 0.30;
     final left = (size.width - width) / 2;
@@ -125,19 +138,29 @@ class _CameraScanScreenState extends State<CameraScanScreen>
     try {
       final shot = await ctrl.takePicture();
       final roiNorm = _computeNormalizedRoi(viewportSize);
-      final result = await _ocrService.processImage(
-        sourceImagePath: shot.path,
-        filterMode: _filterMode,
-        roiNormalized: roiNorm,
-        enhanceContrast: _enhanceContrast,
-      );
+
+      final OcrScanResult result;
+      if (_scannerMode == ScannerMode.qrBarcode) {
+        result = await _ocrService.processBarcode(
+          sourceImagePath: shot.path,
+          roiNormalized: roiNorm,
+        );
+      } else {
+        result = await _ocrService.processImage(
+          sourceImagePath: shot.path,
+          filterMode: _filterMode,
+          roiNormalized: roiNorm,
+          enhanceContrast: _enhanceContrast,
+        );
+      }
+
       if (mounted) {
         await _showConfirmSheet(result);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal memproses OCR: $e')),
+          SnackBar(content: Text('Gagal memproses scan: $e')),
         );
       }
     } finally {
@@ -152,12 +175,21 @@ class _CameraScanScreenState extends State<CameraScanScreen>
       if (picked == null) return;
 
       setState(() => _isProcessing = true);
-      final result = await _ocrService.processImage(
-        sourceImagePath: picked.path,
-        filterMode: _filterMode,
-        roiNormalized: null, // Full gallery photo
-        enhanceContrast: _enhanceContrast,
-      );
+      final OcrScanResult result;
+      if (_scannerMode == ScannerMode.qrBarcode) {
+        result = await _ocrService.processBarcode(
+          sourceImagePath: picked.path,
+          roiNormalized: null,
+        );
+      } else {
+        result = await _ocrService.processImage(
+          sourceImagePath: picked.path,
+          filterMode: _filterMode,
+          roiNormalized: null,
+          enhanceContrast: _enhanceContrast,
+        );
+      }
+
       if (mounted) {
         await _showConfirmSheet(result);
       }
@@ -179,7 +211,13 @@ class _CameraScanScreenState extends State<CameraScanScreen>
           : result.rawText,
     );
     final noteCtrl = TextEditingController();
-    String selectedCategory = kDefaultCategories.first;
+    final isCodeScan = result.scanType == 'qr' || result.scanType == 'barcode';
+    String selectedCategory =
+        isCodeScan ? 'QR / Barcode' : kDefaultCategories.first;
+
+    final badgeText = isCodeScan
+        ? (result.barcodeFormat ?? result.scanType.toUpperCase())
+        : _filterMode.shortLabel.toUpperCase();
 
     final savedEntry = await showModalBottomSheet<ScanEntry>(
       context: context,
@@ -216,15 +254,19 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                     const SizedBox(height: 14),
                     Row(
                       children: [
-                        const Icon(
-                          Icons.document_scanner_rounded,
-                          color: Color(0xFF00E5FF),
+                        Icon(
+                          isCodeScan
+                              ? Icons.qr_code_scanner_rounded
+                              : Icons.document_scanner_rounded,
+                          color: const Color(0xFF00E5FF),
                           size: 20,
                         ),
                         const SizedBox(width: 8),
-                        const Text(
-                          'KONFIRMASI HASIL OCR',
-                          style: TextStyle(
+                        Text(
+                          isCodeScan
+                              ? 'HASIL QR / BARCODE'
+                              : 'KONFIRMASI HASIL OCR',
+                          style: const TextStyle(
                             color: Colors.white,
                             fontSize: 14,
                             fontWeight: FontWeight.w900,
@@ -242,7 +284,7 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            _filterMode.shortLabel.toUpperCase(),
+                            badgeText,
                             style: const TextStyle(
                               color: Color(0xFF00E676),
                               fontSize: 10,
@@ -269,7 +311,6 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                     ),
                     const SizedBox(height: 12),
 
-                    // Quick-edit OCR text field
                     TextField(
                       controller: textCtrl,
                       maxLines: 3,
@@ -280,7 +321,16 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                         fontWeight: FontWeight.w700,
                       ),
                       decoration: InputDecoration(
-                        labelText: 'Hasil Teks / Angka (bisa edit cepat)',
+                        labelText: isCodeScan
+                            ? 'Isi QR / Barcode (bisa edit cepat)'
+                            : 'Hasil Teks / Angka (bisa edit cepat)',
+                        hintText: isCodeScan && textCtrl.text.isEmpty
+                            ? 'QR/Barcode tidak terdeteksi — coba dekatkan kamera'
+                            : null,
+                        hintStyle: const TextStyle(
+                          color: Color(0xFFFFB300),
+                          fontSize: 12.5,
+                        ),
                         labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
                         filled: true,
                         fillColor: const Color(0xFF0A0F1E),
@@ -299,7 +349,6 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                     ),
                     const SizedBox(height: 12),
 
-                    // Category chips
                     const Text(
                       'KATEGORI',
                       style: TextStyle(
@@ -334,7 +383,6 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                     ),
                     const SizedBox(height: 12),
 
-                    // Optional note
                     TextField(
                       controller: noteCtrl,
                       style: const TextStyle(color: Colors.white, fontSize: 14),
@@ -355,7 +403,6 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                         Expanded(
                           child: OutlinedButton(
                             onPressed: () {
-                              // Discard evidence file if cancelled
                               try {
                                 File(result.evidenceImagePath).deleteSync();
                               } catch (_) {}
@@ -381,7 +428,7 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                               if (finalVal.isEmpty) {
                                 ScaffoldMessenger.of(ctx).showSnackBar(
                                   const SnackBar(
-                                    content: Text('Hasil teks tidak boleh kosong.'),
+                                    content: Text('Hasil scan tidak boleh kosong.'),
                                   ),
                                 );
                                 return;
@@ -394,7 +441,11 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                                 rawText: result.rawText,
                                 category: selectedCategory,
                                 note: noteCtrl.text.trim(),
-                                filterMode: _filterMode.name,
+                                filterMode: isCodeScan
+                                    ? 'barcode'
+                                    : _filterMode.name,
+                                scanType: result.scanType,
+                                barcodeFormat: result.barcodeFormat,
                                 imagePath: result.evidenceImagePath,
                                 createdAt: DateTime.now(),
                               );
@@ -433,6 +484,8 @@ class _CameraScanScreenState extends State<CameraScanScreen>
 
   @override
   Widget build(BuildContext context) {
+    final isQrMode = _scannerMode == ScannerMode.qrBarcode;
+
     return Scaffold(
       backgroundColor: const Color(0xFF050914),
       body: LayoutBuilder(
@@ -493,7 +546,7 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                   ),
                 ),
 
-              // 3. Top Controls Bar
+              // 3. Top Controls Bar + Mode Switcher
               Positioned(
                 top: 0,
                 left: 0,
@@ -505,50 +558,79 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                       horizontal: 12,
                       vertical: 8,
                     ),
-                    child: Row(
+                    child: Column(
                       children: [
-                        _circleBtn(
-                          icon: Icons.arrow_back_rounded,
-                          onTap: () => Navigator.of(context).pop(),
+                        Row(
+                          children: [
+                            _circleBtn(
+                              icon: Icons.arrow_back_rounded,
+                              onTap: () => Navigator.of(context).pop(),
+                            ),
+                            const Spacer(),
+                            if (!isQrMode) ...[
+                              _circleBtn(
+                                icon: _wideStripRoi
+                                    ? Icons.crop_16_9_rounded
+                                    : Icons.crop_square_rounded,
+                                active: !_wideStripRoi,
+                                tooltip: 'Ubah ukuran kotak ROI',
+                                onTap: () => setState(
+                                  () => _wideStripRoi = !_wideStripRoi,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              _circleBtn(
+                                icon: Icons.contrast_rounded,
+                                active: _enhanceContrast,
+                                tooltip: 'Boost Kontras OCR',
+                                onTap: () => setState(
+                                  () => _enhanceContrast = !_enhanceContrast,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            _circleBtn(
+                              icon: _flashOn
+                                  ? Icons.flash_on_rounded
+                                  : Icons.flash_off_rounded,
+                              active: _flashOn,
+                              tooltip: 'Flash',
+                              onTap: _toggleFlash,
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 10),
-                        const Expanded(
-                          child: Text(
-                            'BIDIK TEKS DI KOTAK FOKUS',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 1.0,
+                        const SizedBox(height: 10),
+                        // Mode Segmented Switcher: OCR vs QR / Barcode
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0A0F1E).withAlpha(215),
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                              color: const Color(0xFF334155),
                             ),
                           ),
-                        ),
-                        _circleBtn(
-                          icon: _wideStripRoi
-                              ? Icons.crop_16_9_rounded
-                              : Icons.crop_square_rounded,
-                          active: !_wideStripRoi,
-                          tooltip: 'Ubah ukuran kotak ROI',
-                          onTap: () =>
-                              setState(() => _wideStripRoi = !_wideStripRoi),
-                        ),
-                        const SizedBox(width: 8),
-                        _circleBtn(
-                          icon: Icons.contrast_rounded,
-                          active: _enhanceContrast,
-                          tooltip: 'Boost Kontras OCR',
-                          onTap: () => setState(
-                            () => _enhanceContrast = !_enhanceContrast,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _modeTab(
+                                label: 'OCR TEKS',
+                                icon: Icons.document_scanner_rounded,
+                                selected: !isQrMode,
+                                onTap: () => setState(
+                                  () => _scannerMode = ScannerMode.ocr,
+                                ),
+                              ),
+                              _modeTab(
+                                label: 'QR / BARCODE',
+                                icon: Icons.qr_code_scanner_rounded,
+                                selected: isQrMode,
+                                onTap: () => setState(
+                                  () => _scannerMode = ScannerMode.qrBarcode,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        _circleBtn(
-                          icon: _flashOn
-                              ? Icons.flash_on_rounded
-                              : Icons.flash_off_rounded,
-                          active: _flashOn,
-                          tooltip: 'Flash',
-                          onTap: _toggleFlash,
                         ),
                       ],
                     ),
@@ -576,9 +658,11 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                         ),
                       ),
                       child: Text(
-                        _enhanceContrast
-                            ? 'ROI Aktif • Kontras Tinggi ON'
-                            : 'ROI Aktif • Mode Standar',
+                        isQrMode
+                            ? 'Arahkan QR Code / Barcode ke dalam kotak'
+                            : (_enhanceContrast
+                                ? 'ROI Aktif • Kontras Tinggi ON'
+                                : 'ROI Aktif • Mode Standar'),
                         style: const TextStyle(
                           color: Color(0xFF00E5FF),
                           fontSize: 11,
@@ -589,7 +673,7 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                   ),
                 ),
 
-              // 5. Bottom Control Deck (Filter Chips + Shutter + Gallery)
+              // 5. Bottom Control Deck
               Positioned(
                 bottom: 0,
                 left: 0,
@@ -611,49 +695,59 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Filter mode selector
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: OcrFilterMode.values.map((mode) {
-                            final selected = mode == _filterMode;
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              child: GestureDetector(
-                                onTap: () => setState(() => _filterMode = mode),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: selected
-                                        ? const Color(0xFF00E5FF)
-                                        : const Color(0xFF131C33),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(
+                        if (!isQrMode)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: OcrFilterMode.values.map((mode) {
+                              final selected = mode == _filterMode;
+                              return Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 4),
+                                child: GestureDetector(
+                                  onTap: () =>
+                                      setState(() => _filterMode = mode),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
                                       color: selected
                                           ? const Color(0xFF00E5FF)
-                                          : const Color(0xFF334155),
+                                          : const Color(0xFF131C33),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                        color: selected
+                                            ? const Color(0xFF00E5FF)
+                                            : const Color(0xFF334155),
+                                      ),
                                     ),
-                                  ),
-                                  child: Text(
-                                    mode.label,
-                                    style: TextStyle(
-                                      color: selected
-                                          ? const Color(0xFF050914)
-                                          : const Color(0xFFCBD5E1),
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.w800,
+                                    child: Text(
+                                      mode.label,
+                                      style: TextStyle(
+                                        color: selected
+                                            ? const Color(0xFF050914)
+                                            : const Color(0xFFCBD5E1),
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w800,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
+                              );
+                            }).toList(),
+                          )
+                        else
+                          const Text(
+                            'Mendukung QR, Code128, Code39, EAN-13, UPC, DataMatrix',
+                            style: TextStyle(
+                              color: Color(0xFF94A3B8),
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         const SizedBox(height: 18),
 
-                        // Shutter row
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
@@ -673,13 +767,17 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                    color: const Color(0xFF00E5FF),
+                                    color: isQrMode
+                                        ? const Color(0xFF00E676)
+                                        : const Color(0xFF00E5FF),
                                     width: 3.5,
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color:
-                                          const Color(0xFF00E5FF).withAlpha(90),
+                                      color: (isQrMode
+                                              ? const Color(0xFF00E676)
+                                              : const Color(0xFF00E5FF))
+                                          .withAlpha(90),
                                       blurRadius: 18,
                                     ),
                                   ],
@@ -690,7 +788,9 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                                     shape: BoxShape.circle,
                                     color: _isProcessing
                                         ? const Color(0xFFFFB300)
-                                        : const Color(0xFF00E5FF),
+                                        : (isQrMode
+                                            ? const Color(0xFF00E676)
+                                            : const Color(0xFF00E5FF)),
                                   ),
                                   child: _isProcessing
                                       ? const Padding(
@@ -700,9 +800,11 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                                             color: Color(0xFF050914),
                                           ),
                                         )
-                                      : const Icon(
-                                          Icons.document_scanner_rounded,
-                                          color: Color(0xFF050914),
+                                      : Icon(
+                                          isQrMode
+                                              ? Icons.qr_code_scanner_rounded
+                                              : Icons.document_scanner_rounded,
+                                          color: const Color(0xFF050914),
                                           size: 30,
                                         ),
                                 ),
@@ -719,6 +821,45 @@ class _CameraScanScreenState extends State<CameraScanScreen>
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _modeTab({
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFF00E5FF) : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 15,
+              color: selected ? const Color(0xFF050914) : const Color(0xFF94A3B8),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected
+                    ? const Color(0xFF050914)
+                    : const Color(0xFFCBD5E1),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
