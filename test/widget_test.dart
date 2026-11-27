@@ -208,13 +208,13 @@ void main() {
     expect(repo.entries, isEmpty);
   });
 
-  testWidgets('SnapLogOcrApp renders clean home dashboard without categories',
+  testWidgets('Scan2ApiApp renders clean home dashboard without categories',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(const SnapLogOcrApp());
+    await tester.pumpWidget(const Scan2ApiApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('SNAPLOG OCR'), findsOneWidget);
+    expect(find.text('SCAN2API'), findsOneWidget);
     expect(find.text('SCAN OCR'), findsOneWidget);
     expect(find.text('QR / BAR'), findsOneWidget);
     expect(find.text('Belum Ada Log Scan'), findsOneWidget);

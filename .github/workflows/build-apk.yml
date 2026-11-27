@@ -1,4 +1,4 @@
-name: Build SnapLog OCR Android APK & AAB
+name: Build Scan2API Android APK & AAB
 
 on:
   push:
@@ -29,10 +29,10 @@ on:
         description: 'Catatan rilis (opsional)'
         required: false
         type: string
-        default: 'Pembaruan fitur SnapLog OCR: pemindaian teks kamera offline, auto-capture QR/Barcode, simpan bukti foto, ekspor CSV, serta kirim data ke REST API POST/GET.'
+        default: 'Pembaruan Scan2API: branding baru Scan2API, Multi-API (CRUD & 1 aktif), payload dinamis POST/GET + ID generator, auto-capture QR/Barcode, dan live OCR.'
 
 concurrency:
-  group: build-snaplog-ocr-apk-${{ github.event_name }}
+  group: build-scan2api-apk-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:
@@ -41,7 +41,7 @@ permissions:
 
 jobs:
   build-apk:
-    name: Analyze, Test & Build SnapLog OCR Release APK & AAB
+    name: Analyze, Test & Build Scan2API Release APK & AAB
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -113,7 +113,7 @@ jobs:
           )
           if "android.permission.CAMERA" not in m:
               m = m.replace("<application", perms + "    <application", 1)
-          m = re.sub(r'android:label="[^"]*"', 'android:label="SnapLog OCR"', m)
+          m = re.sub(r'android:label="[^"]*"', 'android:label="Scan2API"', m)
           if "android:allowBackup" not in m:
               m = m.replace("<application", '<application\n        android:allowBackup="false"', 1)
           open(mpath, "w", encoding="utf-8").write(m)
@@ -251,7 +251,7 @@ jobs:
             sleep 10
           done
           cp build/app/outputs/flutter-apk/app-release.apk \
-            "SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.apk"
+            "Scan2API-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.apk"
 
           for attempt in 1 2 3; do
             if flutter build appbundle --release \
@@ -264,18 +264,18 @@ jobs:
             sleep 10
           done
           cp build/app/outputs/bundle/release/app-release.aab \
-            "SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab"
+            "Scan2API-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}
-          name: SnapLog OCR v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }})
+          name: Scan2API v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }})
           body: |
-            Build otomatis Signed Android Release APK & Play Store AAB untuk **SnapLog OCR — Offline OCR, QR/Barcode & REST API POST/GET** (`id.nufat.snaplog_ocr`, `v${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}`).
+            Build otomatis Signed Android Release APK & Play Store AAB untuk **Scan2API — OCR, QR & Barcode to REST API** (`id.nufat.snaplog_ocr`, `v${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}`).
           files: |
-            SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.apk
-            SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab
+            Scan2API-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.apk
+            Scan2API-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab
           make_latest: true
 
       - name: Validate Play Store Credentials & Notes
@@ -304,7 +304,7 @@ jobs:
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
           packageName: id.nufat.snaplog_ocr
-          releaseFiles: SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab
+          releaseFiles: Scan2API-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab
           tracks: ${{ inputs.play_track }}
           status: ${{ inputs.play_status }}
           whatsNewDirectory: /tmp/play-whatsnew
@@ -315,7 +315,7 @@ jobs:
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
           packageName: id.nufat.snaplog_ocr
-          releaseFiles: SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab
+          releaseFiles: Scan2API-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab
           tracks: ${{ inputs.play_track }}
           status: ${{ inputs.play_status }}
 
@@ -357,39 +357,39 @@ jobs:
               r_list.raise_for_status()
               listings = r_list.json().get("listings", [])
               langs = [item.get("language") for item in listings if item.get("language")] or ["id"]
-              titles = {item.get("language"): item.get("title") for item in listings if item.get("language")}
 
-              id_short = "Scanner OCR teks kamera offline, QR/Barcode, bukti foto, ekspor CSV & REST API."
+              store_title = "Scan2API: OCR, QR & Barcode"
+              id_short = "Scanner OCR, QR & Barcode offline dengan kirim REST API POST/GET dinamis & CSV."
               id_full = (
-                  "SnapLog OCR adalah aplikasi pencatat lapangan (field logger) berbasis kamera offline yang dirancang untuk "
-                  "memindai teks (OCR), QR Code, dan Barcode secara cepat, akurat, dan terstruktur tanpa memerlukan koneksi internet.\n\n"
+                  "Scan2API adalah aplikasi scanner offline-first untuk memindai teks kamera (OCR), QR Code, dan Barcode "
+                  "secara otomatis lalu mengirimkannya langsung ke REST API / Webhook Anda atau mengekspornya ke CSV.\n\n"
                   "Fitur Utama:\n"
-                  "• Kamera OCR Offline dengan ROI Focus Box: Tangkap nomor seri, kode produksi, label komponen, atau teks "
-                  "secara otomatis dengan deteksi stabilisasi multi-frame.\n"
-                  "• Scanner QR & Barcode Otomatis: Mendukung pemindaian live QR Code dan berbagai format Barcode secara offline.\n"
-                  "• Bukti Foto & Riwayat Terstruktur: Setiap hasil pindaian otomatis tersimpan bersama stempel waktu dan bukti foto.\n"
-                  "• Ekspor CSV Instan: Ekspor seluruh log hasil pemindaian ke file CSV yang siap diolah di Excel atau Google Sheets.\n"
-                  "• Integrasi REST API (POST/GET): Kirim hasil pindaian langsung ke server atau webhook internal Anda."
+                  "• Live OCR dengan ROI Focus Box: Tangkap nomor seri, meteran, kode produksi, dan label secara real-time "
+                  "dengan auto-save saat hasil stabil 3 frame.\n"
+                  "• Auto-Capture QR & Barcode: Pindai QR Code dan berbagai format Barcode secara instan tanpa klik.\n"
+                  "• Multi-API & Payload Dinamis (POST/GET): Simpan banyak endpoint API, pilih 1 API aktif, atur Custom Header, "
+                  "dan tambahkan custom field beserta ID generator string acak.\n"
+                  "• Riwayat Lokal & Ekspor CSV: Semua hasil pindaian tersimpan offline dan siap diekspor ke CSV/Excel."
               )
 
-              en_short = "Offline camera OCR, QR/Barcode logger with photo evidence, CSV export & API."
+              en_short = "Offline OCR, QR & Barcode scanner with dynamic REST API (POST/GET) & CSV export."
               en_full = (
-                  "SnapLog OCR is an offline-first camera field logger built to capture text (OCR), QR Codes, and Barcodes "
-                  "quickly and accurately without requiring an internet connection.\n\n"
+                  "Scan2API is an offline-first camera scanner built to capture text (OCR), QR Codes, and Barcodes "
+                  "automatically and send them straight to your REST API / Webhook or export to CSV.\n\n"
                   "Key Features:\n"
-                  "• Offline Camera OCR with ROI Focus Box: Automatically capture serial numbers, part codes, and labels "
-                  "using multi-frame stability detection.\n"
-                  "• Live QR & Barcode Auto-Capture: Fast offline scanning for QR Codes and standard 1D/2D barcodes.\n"
-                  "• Photo Evidence & Structured Log: Every captured record is saved locally with timestamp and photo evidence.\n"
-                  "• One-Tap CSV Export: Export field logs directly to CSV for spreadsheet reporting.\n"
-                  "• REST API Integration (POST/GET): Forward captured scans directly to your custom server or webhook."
+                  "• Live Offline OCR with ROI Focus Box: Capture serial numbers, meters, and labels in real time "
+                  "with 3-frame stability auto-save.\n"
+                  "• Instant QR & Barcode Auto-Capture: Hands-free offline scanning for QR Codes and 1D/2D barcodes.\n"
+                  "• Multi-API & Dynamic Payload (POST/GET): Manage multiple REST API profiles with a single active endpoint, "
+                  "custom headers, dynamic key-value fields, and random ID string generator.\n"
+                  "• Local History & One-Tap CSV Export: Keep structured offline logs and export directly to CSV/Excel."
               )
 
               for lang in langs:
                   is_en = lang.lower().startswith("en")
                   body = {
                       "language": lang,
-                      "title": titles.get(lang) or "SnapLog OCR",
+                      "title": store_title,
                       "shortDescription": en_short if is_en else id_short,
                       "fullDescription": en_full if is_en else id_full,
                   }
@@ -415,8 +415,8 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          APK_FILE: "SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.apk"
-          AAB_FILE: "SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab"
+          APK_FILE: "Scan2API-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.apk"
+          AAB_FILE: "Scan2API-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab"
           RELEASE_URL: "https://github.com/${{ github.repository }}/releases/tag/v${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}"
         run: |
           if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
@@ -427,9 +427,9 @@ jobs:
           if [ -f "$APK_FILE" ] && [ -f "$AAB_FILE" ]; then
             APK_MB=$(awk "BEGIN {printf \"%.2f\", $(wc -c < "$APK_FILE")/1048576}")
             AAB_MB=$(awk "BEGIN {printf \"%.2f\", $(wc -c < "$AAB_FILE")/1048576}")
-            MSG=$(printf "🚀 SnapLog OCR v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }}) berhasil dibuild!\n📱 APK: %s (%s MB)\n🏪 AAB (Play Store): %s (%s MB)\n📥 Release: %s" "${APK_FILE}" "${APK_MB}" "${AAB_FILE}" "${AAB_MB}" "${RELEASE_URL}")
+            MSG=$(printf "🚀 Scan2API v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }}) berhasil dibuild!\n📱 APK: %s (%s MB)\n🏪 AAB (Play Store): %s (%s MB)\n📥 Release: %s" "${APK_FILE}" "${APK_MB}" "${AAB_FILE}" "${AAB_MB}" "${RELEASE_URL}")
           else
-            MSG="❌ Build SnapLog OCR v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }}) gagal menghasilkan file APK/AAB."
+            MSG="❌ Build Scan2API v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }}) gagal menghasilkan file APK/AAB."
           fi
 
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \

@@ -14,16 +14,16 @@ void main() {
       statusBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(const SnapLogOcrApp());
+  runApp(const Scan2ApiApp());
 }
 
-class SnapLogOcrApp extends StatelessWidget {
-  const SnapLogOcrApp({super.key});
+class Scan2ApiApp extends StatelessWidget {
+  const Scan2ApiApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SnapLog OCR',
+      title: 'Scan2API',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,

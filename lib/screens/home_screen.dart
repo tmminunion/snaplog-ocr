@@ -481,7 +481,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             SizedBox(width: 8),
             Text(
-              'SNAPLOG OCR',
+              'SCAN2API',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 16,

@@ -1,5 +1,5 @@
 name: snaplog_ocr
-description: SnapLog OCR - Offline Camera OCR, QR & Barcode Field Logger with ROI Focus Box, Photo Evidence, CSV Export, and REST API POST/GET.
+description: Scan2API - Offline OCR, QR & Barcode Scanner with Auto-Capture, CSV Export, and Dynamic Multi-REST API (POST/GET).
 publish_to: 'none'
 version: 1.0.0+1
 

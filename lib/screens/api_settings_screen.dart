@@ -514,8 +514,8 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
     final cfg = _buildConfig();
     final sampleEntry = ScanEntry(
       id: 'sample_1',
-      text: 'SNAPLOG-001',
-      rawText: 'SNAPLOG-001',
+      text: 'SCAN2API-001',
+      rawText: 'SCAN2API-001',
       note: 'Contoh catatan',
       filterMode: 'all',
       scanType: 'qr',
@@ -539,9 +539,9 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
 
     final sampleEntry = ScanEntry(
       id: 'test_${DateTime.now().millisecondsSinceEpoch}',
-      text: 'SNAPLOG-TEST-001',
-      rawText: 'SNAPLOG-TEST-001',
-      note: 'Test koneksi SnapLog OCR',
+      text: 'SCAN2API-TEST-001',
+      rawText: 'SCAN2API-TEST-001',
+      note: 'Test koneksi Scan2API',
       filterMode: 'all',
       scanType: 'qr',
       barcodeFormat: 'QR_CODE',

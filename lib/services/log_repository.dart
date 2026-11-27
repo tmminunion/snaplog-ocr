@@ -104,7 +104,7 @@ class LogRepository extends ChangeNotifier {
     String p2(int v) => v.toString().padLeft(2, '0');
     final stamp =
         '${now.year}${p2(now.month)}${p2(now.day)}_${p2(now.hour)}${p2(now.minute)}';
-    final file = File('${dir.path}/SnapLog_OCR_$stamp.csv');
+    final file = File('${dir.path}/Scan2API_$stamp.csv');
     await file.writeAsString(csv, flush: true);
     return file.path;
   }
@@ -113,8 +113,8 @@ class LogRepository extends ChangeNotifier {
     final csvPath = await exportCsvFile(subset: subset);
     await Share.shareXFiles(
       [XFile(csvPath, mimeType: 'text/csv')],
-      subject: 'SnapLog OCR Export',
-      text: 'Rekap hasil scan SnapLog OCR (${(subset ?? _entries).length} data).',
+      subject: 'Scan2API Export',
+      text: 'Rekap hasil scan Scan2API (${(subset ?? _entries).length} data).',
     );
   }
 }

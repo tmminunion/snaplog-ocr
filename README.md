@@ -1,11 +1,11 @@
-# SnapLog OCR — Offline Camera Field Logger
+# Scan2API — OCR, QR & Barcode to REST API
 
-Aplikasi Android untuk memindai angka, nomor seri, meteran, atau label langsung dari kamera (**100% offline** menggunakan **Google ML Kit Text Recognition**), menyimpannya ke tabel log lokal beserta potongan bukti foto, lalu mengekspornya ke file **CSV (Excel)** atau berbagi ke WhatsApp.
+Aplikasi Android **offline-first** untuk memindai **teks kamera (OCR)**, **QR Code**, dan **Barcode** secara otomatis menggunakan **Google ML Kit**, menyimpan riwayat log lokal, mengekspor ke **CSV (Excel)**, serta mengirim data langsung ke **REST API (`POST` / `GET`)** dengan payload dinamis.
 
 ## Fitur Utama
-- **Kamera Live + Kotak Fokus ROI:** Bidik area teks/angka tertentu saja; gambar otomatis di-crop sesuai kotak fokus sebelum diproses OCR.
-- **Filter Scan Pintar:** Pilihan mode `Semua Teks`, `Angka Saja`, atau `Kode / Serial` + opsi *Boost Kontras* untuk kondisi cahaya redup atau permukaan sulit.
-- **Konfirmasi & Quick Edit:** Hasil scan langsung muncul dengan pratinjau potongan foto agar mudah dikoreksi 1 tap sebelum disimpan.
-- **Tabel Log Lokal + Bukti Foto:** Data tersimpan offline di perangkat lengkap dengan *timestamp*, kategori, catatan, dan foto bukti yang bisa diperbesar.
-- **Ekspor CSV 1 Klik:** Buat file `.csv` kompatibel Excel (dengan UTF-8 BOM) dan langsung bagikan ke WhatsApp, Email, atau Google Drive.
-- **Auto-Build APK (GitHub Actions):** Push ke `main` otomatis merilis APK di **GitHub Releases** dan mengirim notifikasi ke **Telegram**.
+- **Live OCR + Auto-Save 3 Frame:** Bidik teks/angka di dalam kotak fokus ROI; teks dibaca secara *real-time* dan otomatis tersimpan saat stabil 3 frame berturut-turut (dengan filter `Semua Teks`, `Angka Saja`, dan `Kode / Serial`).
+- **Auto-Capture QR & Barcode:** Deteksi otomatis QR Code, Code128, Code39, EAN-13, UPC, DataMatrix, dan PDF417 tanpa perlu tekan shutter, lengkap dengan anti-duplikat untuk scan beruntun.
+- **Multi-API List (CRUD + Single Active):** Simpan banyak konfigurasi REST API (tambah, edit, hapus) dan pilih 1 endpoint aktif kapan saja.
+- **Dynamic Payload (`POST` / `GET`) + ID Generator:** Susun field *key-value* bebas dengan tombol `+`, termasuk generator ID string acak, nilai statis, dan placeholder dinamis (`{{value}}`, `{{random_id}}`, `{{timestamp}}`, `{{scan_type}}`, `{{note}}`), plus *Custom Header* & tombol *Test API*.
+- **Ekspor CSV 1 Klik:** Ekspor seluruh log lokal ke file `.csv` (UTF-8 BOM, rapi di Excel) dan bagikan langsung ke WhatsApp, Email, atau Google Drive.
+- **CI/CD Otomatis (GitHub Actions):** Build *signed* APK & Play Store AAB otomatis, rilis ke GitHub Releases, sinkronisasi listing Play Store, dan kirim notifikasi ke Telegram.
