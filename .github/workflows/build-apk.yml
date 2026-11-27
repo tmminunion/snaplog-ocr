@@ -62,6 +62,13 @@ jobs:
           cp -r /tmp/snaplog_tpl/android ./android
           rm -rf /tmp/snaplog_tpl
 
+          cat <<'EOF' > android/app/proguard-rules.pro
+          -dontwarn com.google.mlkit.vision.text.chinese.**
+          -dontwarn com.google.mlkit.vision.text.devanagari.**
+          -dontwarn com.google.mlkit.vision.text.japanese.**
+          -dontwarn com.google.mlkit.vision.text.korean.**
+          EOF
+
           python3 - <<'PYEOF'
           import os
           import re
@@ -77,11 +84,21 @@ jobs:
           m = re.sub(r'android:label="[^"]*"', 'android:label="SnapLog OCR"', m)
           open(mpath, "w", encoding="utf-8").write(m)
 
-          # Ensure minSdk >= 21 for camera & ML Kit
+          # Ensure minSdk >= 21 and wire proguard-rules.pro for ML Kit R8
           kts_path = "android/app/build.gradle.kts"
           if os.path.exists(kts_path):
               txt = open(kts_path, "r", encoding="utf-8").read()
-              txt = txt.replace("minSdk = flutter.minSdkVersion", "minSdk = maxOf(21, flutter.minSdkVersion)")
+              txt = txt.replace(
+                  "minSdk = flutter.minSdkVersion",
+                  "minSdk = maxOf(21, flutter.minSdkVersion)",
+              )
+              if "proguard-rules.pro" not in txt:
+                  txt = txt.replace(
+                      'signingConfig = signingConfigs.getByName("debug")',
+                      'signingConfig = signingConfigs.getByName("debug")\n'
+                      '            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")',
+                      1,
+                  )
               open(kts_path, "w", encoding="utf-8").write(txt)
           PYEOF
 
