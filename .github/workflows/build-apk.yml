@@ -1,10 +1,35 @@
-name: Build SnapLog OCR Android APK
+name: Build SnapLog OCR Android APK & AAB
 
 on:
   push:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      play_track:
+        description: 'Google Play Track (pilih none untuk skip upload Play Store)'
+        required: true
+        type: choice
+        default: 'internal'
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+          - none
+      play_status:
+        description: 'Status rilis Play Store'
+        required: true
+        type: choice
+        default: 'completed'
+        options:
+          - completed
+          - draft
+      release_notes:
+        description: 'Catatan rilis (opsional)'
+        required: false
+        type: string
+        default: 'Pembaruan fitur SnapLog OCR: pemindaian teks kamera offline, auto-capture QR/Barcode, simpan bukti foto, ekspor CSV, serta kirim data ke REST API POST/GET.'
 
 concurrency:
   group: build-snaplog-ocr-apk-${{ github.event_name }}
@@ -16,7 +41,7 @@ permissions:
 
 jobs:
   build-apk:
-    name: Analyze, Test & Build SnapLog OCR Release APK
+    name: Analyze, Test & Build SnapLog OCR Release APK & AAB
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -89,6 +114,8 @@ jobs:
           if "android.permission.CAMERA" not in m:
               m = m.replace("<application", perms + "    <application", 1)
           m = re.sub(r'android:label="[^"]*"', 'android:label="SnapLog OCR"', m)
+          if "android:allowBackup" not in m:
+              m = m.replace("<application", '<application\n        android:allowBackup="false"', 1)
           open(mpath, "w", encoding="utf-8").write(m)
 
           # Ensure minSdk >= 21 and disable R8 stripping that breaks ML Kit ComponentRegistrar reflection
@@ -122,7 +149,94 @@ jobs:
       - name: Run Unit Tests
         run: flutter test
 
-      - name: Build Release APK
+      - name: Configure Release Signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "ANDROID_KEYSTORE_BASE64 not set; skipping release signing."
+            exit 0
+          fi
+
+          echo "$KEYSTORE_B64" | base64 -d > android/app/upload-keystore.jks
+          cat <<EOF > android/key.properties
+          storePassword=$STORE_PASS
+          keyPassword=$KEY_PASS
+          keyAlias=$KEY_ALIAS
+          storeFile=upload-keystore.jks
+          EOF
+
+          python3 - <<'PYEOF'
+          import os
+
+          kts_path = "android/app/build.gradle.kts"
+          groovy_path = "android/app/build.gradle"
+
+          if os.path.exists(kts_path):
+              txt = open(kts_path, "r", encoding="utf-8").read()
+              header = (
+                  "import java.util.Properties\n"
+                  "import java.io.FileInputStream\n\n"
+                  "val keystoreProperties = Properties()\n"
+                  "val keystorePropertiesFile = rootProject.file(\"key.properties\")\n"
+                  "if (keystorePropertiesFile.exists()) {\n"
+                  "    keystoreProperties.load(FileInputStream(keystorePropertiesFile))\n"
+                  "}\n\n"
+              )
+              if "keystorePropertiesFile" not in txt:
+                  txt = header + txt
+              signing_block = (
+                  "    signingConfigs {\n"
+                  "        create(\"release\") {\n"
+                  "            keyAlias = keystoreProperties.getProperty(\"keyAlias\")\n"
+                  "            keyPassword = keystoreProperties.getProperty(\"keyPassword\")\n"
+                  "            storeFile = keystoreProperties.getProperty(\"storeFile\")?.let { file(it) }\n"
+                  "            storePassword = keystoreProperties.getProperty(\"storePassword\")\n"
+                  "        }\n"
+                  "    }\n\n"
+                  "    buildTypes {"
+              )
+              if "create(\"release\")" not in txt:
+                  txt = txt.replace("    buildTypes {", signing_block, 1)
+              txt = txt.replace(
+                  "signingConfig = signingConfigs.getByName(\"debug\")",
+                  "signingConfig = signingConfigs.getByName(\"release\")"
+              )
+              open(kts_path, "w", encoding="utf-8").write(txt)
+              print("Configured release signing in build.gradle.kts")
+          elif os.path.exists(groovy_path):
+              txt = open(groovy_path, "r", encoding="utf-8").read()
+              header = (
+                  "def keystoreProperties = new Properties()\n"
+                  "def keystorePropertiesFile = rootProject.file('key.properties')\n"
+                  "if (keystorePropertiesFile.exists()) {\n"
+                  "    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\n"
+                  "}\n\n"
+              )
+              if "keystorePropertiesFile" not in txt:
+                  txt = header + txt
+              signing_block = (
+                  "    signingConfigs {\n"
+                  "        release {\n"
+                  "            keyAlias keystoreProperties['keyAlias']\n"
+                  "            keyPassword keystoreProperties['keyPassword']\n"
+                  "            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null\n"
+                  "            storePassword keystoreProperties['storePassword']\n"
+                  "        }\n"
+                  "    }\n\n"
+                  "    buildTypes {"
+              )
+              if "signingConfigs {" not in txt:
+                  txt = txt.replace("    buildTypes {", signing_block, 1)
+              txt = txt.replace("signingConfig signingConfigs.debug", "signingConfig signingConfigs.release")
+              open(groovy_path, "w", encoding="utf-8").write(txt)
+              print("Configured release signing in build.gradle")
+          PYEOF
+
+      - name: Build Signed Release APK & AAB (Play Store)
         env:
           GRADLE_OPTS: -Dorg.gradle.internal.http.retry.maxRetries=5 -Dorg.gradle.internal.http.retry.initialBackoff=3000
         run: |
@@ -139,23 +253,170 @@ jobs:
           cp build/app/outputs/flutter-apk/app-release.apk \
             "SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.apk"
 
+          for attempt in 1 2 3; do
+            if flutter build appbundle --release \
+              --build-name="${{ steps.meta.outputs.version_name }}" \
+              --build-number="${{ steps.meta.outputs.version_code }}"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "Retrying AAB build after transient network/Maven error (attempt $attempt)..."
+            sleep 10
+          done
+          cp build/app/outputs/bundle/release/app-release.aab \
+            "SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab"
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}
           name: SnapLog OCR v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }})
           body: |
-            Build otomatis Android Release APK untuk **SnapLog OCR — Offline OCR, QR/Barcode & REST API POST/GET** (`v${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}`).
-            Unduh file `.apk` di bawah untuk langsung install di perangkat Android.
-          files: SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.apk
+            Build otomatis Signed Android Release APK & Play Store AAB untuk **SnapLog OCR — Offline OCR, QR/Barcode & REST API POST/GET** (`id.nufat.snaplog_ocr`, `v${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}`).
+          files: |
+            SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.apk
+            SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab
           make_latest: true
 
-      - name: Send APK Link to Telegram
+      - name: Validate Play Store Credentials & Notes
+        if: github.event_name == 'workflow_dispatch' && inputs.play_track != 'none'
+        id: play_prep
+        env:
+          SA_JSON: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
+          RAW_NOTES: ${{ inputs.release_notes }}
+        run: |
+          if [ -z "$SA_JSON" ]; then
+            echo "::error::Secret PLAY_STORE_SERVICE_ACCOUNT_JSON belum diisi di repository tmminunion/snaplog-ocr!"
+            exit 1
+          fi
+
+          if [ -n "$RAW_NOTES" ]; then
+            mkdir -p /tmp/play-whatsnew
+            printf '%s\n' "$RAW_NOTES" > /tmp/play-whatsnew/whatsnew-id
+            echo "has_notes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_notes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Publish AAB to Google Play Store (with Release Notes)
+        if: github.event_name == 'workflow_dispatch' && inputs.play_track != 'none' && steps.play_prep.outputs.has_notes == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
+          packageName: id.nufat.snaplog_ocr
+          releaseFiles: SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab
+          tracks: ${{ inputs.play_track }}
+          status: ${{ inputs.play_status }}
+          whatsNewDirectory: /tmp/play-whatsnew
+
+      - name: Publish AAB to Google Play Store
+        if: github.event_name == 'workflow_dispatch' && inputs.play_track != 'none' && steps.play_prep.outputs.has_notes != 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
+          packageName: id.nufat.snaplog_ocr
+          releaseFiles: SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab
+          tracks: ${{ inputs.play_track }}
+          status: ${{ inputs.play_status }}
+
+      - name: Sync Global Store Listing Description to Google Play
+        if: github.event_name == 'workflow_dispatch' && inputs.play_track != 'none'
+        env:
+          SA_JSON: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python3 -m pip install --quiet google-auth requests
+          python3 - <<'PYEOF'
+          import json
+          import os
+          import requests
+          from google.auth.transport.requests import Request
+          from google.oauth2 import service_account
+
+          sa_raw = os.environ.get("SA_JSON", "").strip()
+          if not sa_raw:
+              print("No SA_JSON; skipping listing sync.")
+              raise SystemExit(0)
+
+          creds = service_account.Credentials.from_service_account_info(
+              json.loads(sa_raw),
+              scopes=["https://www.googleapis.com/auth/androidpublisher"],
+          )
+          creds.refresh(Request())
+          headers = {
+              "Authorization": f"Bearer {creds.token}",
+              "Content-Type": "application/json",
+          }
+          base = "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/id.nufat.snaplog_ocr/edits"
+
+          try:
+              r_edit = requests.post(base, headers=headers, json={}, timeout=30)
+              r_edit.raise_for_status()
+              edit_id = r_edit.json()["id"]
+
+              r_list = requests.get(f"{base}/{edit_id}/listings", headers=headers, timeout=30)
+              r_list.raise_for_status()
+              listings = r_list.json().get("listings", [])
+              langs = [item.get("language") for item in listings if item.get("language")] or ["id"]
+              titles = {item.get("language"): item.get("title") for item in listings if item.get("language")}
+
+              id_short = "Scanner OCR teks kamera offline, QR/Barcode, bukti foto, ekspor CSV & REST API."
+              id_full = (
+                  "SnapLog OCR adalah aplikasi pencatat lapangan (field logger) berbasis kamera offline yang dirancang untuk "
+                  "memindai teks (OCR), QR Code, dan Barcode secara cepat, akurat, dan terstruktur tanpa memerlukan koneksi internet.\n\n"
+                  "Fitur Utama:\n"
+                  "• Kamera OCR Offline dengan ROI Focus Box: Tangkap nomor seri, kode produksi, label komponen, atau teks "
+                  "secara otomatis dengan deteksi stabilisasi multi-frame.\n"
+                  "• Scanner QR & Barcode Otomatis: Mendukung pemindaian live QR Code dan berbagai format Barcode secara offline.\n"
+                  "• Bukti Foto & Riwayat Terstruktur: Setiap hasil pindaian otomatis tersimpan bersama stempel waktu dan bukti foto.\n"
+                  "• Ekspor CSV Instan: Ekspor seluruh log hasil pemindaian ke file CSV yang siap diolah di Excel atau Google Sheets.\n"
+                  "• Integrasi REST API (POST/GET): Kirim hasil pindaian langsung ke server atau webhook internal Anda."
+              )
+
+              en_short = "Offline camera OCR, QR/Barcode logger with photo evidence, CSV export & API."
+              en_full = (
+                  "SnapLog OCR is an offline-first camera field logger built to capture text (OCR), QR Codes, and Barcodes "
+                  "quickly and accurately without requiring an internet connection.\n\n"
+                  "Key Features:\n"
+                  "• Offline Camera OCR with ROI Focus Box: Automatically capture serial numbers, part codes, and labels "
+                  "using multi-frame stability detection.\n"
+                  "• Live QR & Barcode Auto-Capture: Fast offline scanning for QR Codes and standard 1D/2D barcodes.\n"
+                  "• Photo Evidence & Structured Log: Every captured record is saved locally with timestamp and photo evidence.\n"
+                  "• One-Tap CSV Export: Export field logs directly to CSV for spreadsheet reporting.\n"
+                  "• REST API Integration (POST/GET): Forward captured scans directly to your custom server or webhook."
+              )
+
+              for lang in langs:
+                  is_en = lang.lower().startswith("en")
+                  body = {
+                      "language": lang,
+                      "title": titles.get(lang) or "SnapLog OCR",
+                      "shortDescription": en_short if is_en else id_short,
+                      "fullDescription": en_full if is_en else id_full,
+                  }
+                  ru = requests.put(f"{base}/{edit_id}/listings/{lang}", headers=headers, json=body, timeout=30)
+                  ru.raise_for_status()
+                  print(f"Updated Google Play Store listing for language: {lang}")
+
+              rc = requests.post(f"{base}/{edit_id}:commit", headers=headers, timeout=30)
+              if rc.status_code == 400 and "changesNotSentForReview" in rc.text:
+                  rc = requests.post(
+                      f"{base}/{edit_id}:commit?changesNotSentForReview=true",
+                      headers=headers,
+                      timeout=30,
+                  )
+              rc.raise_for_status()
+              print("Successfully committed global Store Listing description to Google Play!")
+          except Exception as exc:
+              print(f"::warning::Store listing sync warning (AAB upload unaffected): {exc}")
+          PYEOF
+
+      - name: Send APK & AAB Link to Telegram
         if: always()
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           APK_FILE: "SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.apk"
+          AAB_FILE: "SnapLog-OCR-v${{ steps.meta.outputs.version_name }}-code${{ steps.meta.outputs.version_code }}-release.aab"
           RELEASE_URL: "https://github.com/${{ github.repository }}/releases/tag/v${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}"
         run: |
           if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
@@ -163,11 +424,12 @@ jobs:
             exit 0
           fi
 
-          if [ -f "$APK_FILE" ]; then
+          if [ -f "$APK_FILE" ] && [ -f "$AAB_FILE" ]; then
             APK_MB=$(awk "BEGIN {printf \"%.2f\", $(wc -c < "$APK_FILE")/1048576}")
-            MSG=$(printf "🚀 SnapLog OCR v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }}) berhasil dibuild!\n📱 APK: %s (%s MB)\n📥 Release: %s" "${APK_FILE}" "${APK_MB}" "${RELEASE_URL}")
+            AAB_MB=$(awk "BEGIN {printf \"%.2f\", $(wc -c < "$AAB_FILE")/1048576}")
+            MSG=$(printf "🚀 SnapLog OCR v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }}) berhasil dibuild!\n📱 APK: %s (%s MB)\n🏪 AAB (Play Store): %s (%s MB)\n📥 Release: %s" "${APK_FILE}" "${APK_MB}" "${AAB_FILE}" "${AAB_MB}" "${RELEASE_URL}")
           else
-            MSG="❌ Build SnapLog OCR v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }}) gagal menghasilkan file APK."
+            MSG="❌ Build SnapLog OCR v${{ steps.meta.outputs.version_name }} (Build ${{ steps.meta.outputs.version_code }}) gagal menghasilkan file APK/AAB."
           fi
 
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
@@ -180,7 +442,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          rm -rf build android /tmp/snaplog_tpl *.apk
+          rm -rf build android /tmp/snaplog_tpl *.apk *.aab
           ARTIFACT_IDS=$(gh api "repos/${{ github.repository }}/actions/artifacts?per_page=100" --jq '.artifacts[].id' 2>/dev/null || true)
           for AID in $ARTIFACT_IDS; do
             gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/${AID}" >/dev/null 2>&1 || true
