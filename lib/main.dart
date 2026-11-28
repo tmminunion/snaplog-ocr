@@ -8,10 +8,17 @@ void main() {
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
   ]);
+  // Edge-to-edge (wajib untuk Android 15 / targetSdk 35): konten digambar di
+  // balik status bar & navigation bar; inset ditangani Scaffold/SafeArea.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.light,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarDividerColor: Colors.transparent,
+      systemNavigationBarIconBrightness: Brightness.light,
+      systemNavigationBarContrastEnforced: false,
     ),
   );
   runApp(const Scan2ApiApp());

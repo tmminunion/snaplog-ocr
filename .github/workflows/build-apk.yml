@@ -100,6 +100,9 @@ jobs:
           -keep class com.google_mlkit_text_recognition.** { *; }
           -keep class com.google_mlkit_barcode_scanning.** { *; }
           -keep class com.google_mlkit_commons.** { *; }
+          -keepattributes Signature,InnerClasses,EnclosingMethod,*Annotation*
+          -dontwarn com.google.android.play.core.**
+          -dontwarn io.flutter.embedding.engine.deferredcomponents.**
           EOF
 
           python3 - <<'PYEOF'
@@ -132,8 +135,8 @@ jobs:
                   txt = txt.replace(
                       'signingConfig = signingConfigs.getByName("debug")',
                       'signingConfig = signingConfigs.getByName("debug")\n'
-                      '            isMinifyEnabled = false\n'
-                      '            isShrinkResources = false\n'
+                      '            isMinifyEnabled = true\n'
+                      '            isShrinkResources = true\n'
                       '            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")',
                       1,
                   )

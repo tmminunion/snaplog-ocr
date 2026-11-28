@@ -559,35 +559,29 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton.extended(
-            heroTag: 'fab_qr',
-            elevation: 2,
-            onPressed: () => _openScanner(mode: ScannerMode.qrBarcode),
-            backgroundColor: const Color(0xFF00E676),
-            foregroundColor: const Color(0xFF0A0F1E),
-            icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
-            label: const Text(
-              'QR / BAR',
-              style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.5),
+      bottomNavigationBar: SafeArea(
+        minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: _BigScanButton(
+                label: 'QR / BAR',
+                icon: Icons.qr_code_scanner_rounded,
+                color: const Color(0xFF00E676),
+                onPressed: () => _openScanner(mode: ScannerMode.qrBarcode),
+              ),
             ),
-          ),
-          const SizedBox(width: 10),
-          FloatingActionButton.extended(
-            heroTag: 'fab_ocr',
-            elevation: 2,
-            onPressed: () => _openScanner(mode: ScannerMode.ocr),
-            backgroundColor: const Color(0xFF00E5FF),
-            foregroundColor: const Color(0xFF0A0F1E),
-            icon: const Icon(Icons.camera_alt_rounded, size: 20),
-            label: const Text(
-              'SCAN OCR',
-              style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.5),
+            const SizedBox(width: 14),
+            Expanded(
+              child: _BigScanButton(
+                label: 'SCAN OCR',
+                icon: Icons.camera_alt_rounded,
+                color: const Color(0xFF00E5FF),
+                onPressed: () => _openScanner(mode: ScannerMode.ocr),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
       body: !_repo.isLoaded
           ? const Center(
@@ -947,6 +941,59 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: Color(0xFF94A3B8),
                 fontSize: 13,
                 height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Tombol aksi besar untuk memulai pemindaian (ikon di atas, teks di bawah).
+class _BigScanButton extends StatelessWidget {
+  const _BigScanButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 96,
+      child: ElevatedButton(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: const Color(0xFF0A0F1E),
+          elevation: 3,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 38),
+            const SizedBox(height: 6),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                ),
               ),
             ),
           ],
