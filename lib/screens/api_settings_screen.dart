@@ -161,7 +161,7 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
       );
       return;
     }
-    await _loadStore();
+    await _load();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$imported profil API berhasil diimpor.'), backgroundColor: const Color(0xFF00897B)),
