@@ -12,6 +12,24 @@ String generateRandomIdString({int length = 10, String prefix = ''}) {
   return buf.toString();
 }
 
+/// Applies an optional regex extractor to [input].
+/// If [pattern] has a capturing group, returns group(1); otherwise group(0).
+/// Returns [input] unchanged if [pattern] is empty, invalid, or has no match.
+String applyRegexExtractor(String input, String pattern) {
+  final p = pattern.trim();
+  if (p.isEmpty || input.isEmpty) return input;
+  try {
+    final m = RegExp(p).firstMatch(input);
+    if (m == null) return input;
+    if (m.groupCount >= 1 && m.group(1) != null && m.group(1)!.isNotEmpty) {
+      return m.group(1)!.trim();
+    }
+    return (m.group(0) ?? input).trim();
+  } catch (_) {
+    return input;
+  }
+}
+
 enum ApiFieldType {
   scanValue,
   randomString,
@@ -107,6 +125,76 @@ List<ApiCustomField> defaultApiFields() => const [
       ApiCustomField(key: 'timestamp', type: ApiFieldType.timestamp),
     ];
 
+/// 1-click ready-to-use integration templates for ApiEditorScreen.
+List<ApiConfig> apiIntegrationPresets() => const [
+      ApiConfig(
+        name: 'Google Sheets (Apps Script)',
+        endpointUrl: 'https://script.google.com/macros/s/YOUR_DEPLOY_ID/exec',
+        method: 'POST',
+        autoSend: true,
+        customFields: [
+          ApiCustomField(key: 'id', type: ApiFieldType.randomString, value: 'GS-'),
+          ApiCustomField(key: 'value', type: ApiFieldType.scanValue),
+          ApiCustomField(key: 'scan_type', type: ApiFieldType.scanType),
+          ApiCustomField(key: 'note', type: ApiFieldType.note),
+          ApiCustomField(key: 'timestamp', type: ApiFieldType.timestamp),
+        ],
+      ),
+      ApiConfig(
+        name: 'n8n / Zapier Webhook',
+        endpointUrl: 'https://your-n8n-domain.com/webhook/scan2api',
+        method: 'POST',
+        headerKey: 'X-Api-Key',
+        headerValue: 'YOUR_SECRET_KEY',
+        autoSend: true,
+        customFields: [
+          ApiCustomField(key: 'event', type: ApiFieldType.staticValue, value: 'scan2api.capture'),
+          ApiCustomField(key: 'code', type: ApiFieldType.scanValue),
+          ApiCustomField(key: 'type', type: ApiFieldType.scanType),
+          ApiCustomField(key: 'timestamp', type: ApiFieldType.timestamp),
+        ],
+      ),
+      ApiConfig(
+        name: 'Telegram Bot',
+        endpointUrl: 'https://api.telegram.org/botYOUR_BOT_TOKEN/sendMessage',
+        method: 'POST',
+        autoSend: true,
+        customFields: [
+          ApiCustomField(key: 'chat_id', type: ApiFieldType.staticValue, value: 'YOUR_CHAT_ID'),
+          ApiCustomField(
+            key: 'text',
+            type: ApiFieldType.staticValue,
+            value: 'Scan2API ({{scan_type}}): {{value}}',
+          ),
+        ],
+      ),
+      ApiConfig(
+        name: 'Discord Webhook',
+        endpointUrl: 'https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN',
+        method: 'POST',
+        autoSend: true,
+        customFields: [
+          ApiCustomField(
+            key: 'content',
+            type: ApiFieldType.staticValue,
+            value: '**[Scan2API]** `{{value}}` ({{scan_type}})',
+          ),
+        ],
+      ),
+      ApiConfig(
+        name: 'Webhook.site (Test)',
+        endpointUrl: 'https://webhook.site/YOUR-UUID',
+        method: 'POST',
+        autoSend: false,
+        customFields: [
+          ApiCustomField(key: 'id', type: ApiFieldType.randomString, value: 'TEST-'),
+          ApiCustomField(key: 'value', type: ApiFieldType.scanValue),
+          ApiCustomField(key: 'scan_type', type: ApiFieldType.scanType),
+          ApiCustomField(key: 'timestamp', type: ApiFieldType.timestamp),
+        ],
+      ),
+    ];
+
 class ApiConfig {
   final String id;
   final String name;
@@ -115,6 +203,7 @@ class ApiConfig {
   final String headerKey;
   final String headerValue;
   final bool autoSend;
+  final String regexPattern;
   final List<ApiCustomField> customFields;
 
   const ApiConfig({
@@ -125,6 +214,7 @@ class ApiConfig {
     this.headerKey = '',
     this.headerValue = '',
     this.autoSend = false,
+    this.regexPattern = '',
     this.customFields = const [],
   });
 
@@ -140,6 +230,7 @@ class ApiConfig {
     String? headerKey,
     String? headerValue,
     bool? autoSend,
+    String? regexPattern,
     List<ApiCustomField>? customFields,
   }) {
     return ApiConfig(
@@ -150,6 +241,7 @@ class ApiConfig {
       headerKey: headerKey ?? this.headerKey,
       headerValue: headerValue ?? this.headerValue,
       autoSend: autoSend ?? this.autoSend,
+      regexPattern: regexPattern ?? this.regexPattern,
       customFields: customFields ?? this.customFields,
     );
   }
@@ -162,6 +254,7 @@ class ApiConfig {
         'headerKey': headerKey,
         'headerValue': headerValue,
         'autoSend': autoSend,
+        'regexPattern': regexPattern,
         'customFields': customFields.map((f) => f.toJson()).toList(),
       };
 
@@ -185,6 +278,7 @@ class ApiConfig {
       headerKey: (map['headerKey'] as String?) ?? '',
       headerValue: (map['headerValue'] as String?) ?? '',
       autoSend: (map['autoSend'] as bool?) ?? false,
+      regexPattern: (map['regexPattern'] as String?) ?? '',
       customFields: fields,
     );
   }

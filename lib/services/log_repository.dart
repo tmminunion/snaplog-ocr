@@ -15,6 +15,8 @@ class LogRepository extends ChangeNotifier {
   bool _loaded = false;
 
   List<ScanEntry> get entries => List.unmodifiable(_entries);
+  List<ScanEntry> get unsyncedEntries =>
+      _entries.where((e) => !e.apiSynced).toList(growable: false);
   bool get isLoaded => _loaded;
 
   int get todayCount {
@@ -113,8 +115,31 @@ class LogRepository extends ChangeNotifier {
     final csvPath = await exportCsvFile(subset: subset);
     await Share.shareXFiles(
       [XFile(csvPath, mimeType: 'text/csv')],
-      subject: 'Scan2API Export',
+      subject: 'Scan2API Export CSV',
       text: 'Rekap hasil scan Scan2API (${(subset ?? _entries).length} data).',
+    );
+  }
+
+  Future<String> exportJsonFile({List<ScanEntry>? subset}) async {
+    final target = subset ?? _entries;
+    final jsonStr = const JsonEncoder.withIndent('  ')
+        .convert(target.map((e) => e.toJson()).toList());
+    final dir = await getTemporaryDirectory();
+    final now = DateTime.now();
+    String p2(int v) => v.toString().padLeft(2, '0');
+    final stamp =
+        '${now.year}${p2(now.month)}${p2(now.day)}_${p2(now.hour)}${p2(now.minute)}';
+    final file = File('${dir.path}/Scan2API_$stamp.json');
+    await file.writeAsString(jsonStr, flush: true);
+    return file.path;
+  }
+
+  Future<void> shareJson({List<ScanEntry>? subset}) async {
+    final jsonPath = await exportJsonFile(subset: subset);
+    await Share.shareXFiles(
+      [XFile(jsonPath, mimeType: 'application/json')],
+      subject: 'Scan2API Export JSON',
+      text: 'Rekap hasil scan JSON Scan2API (${(subset ?? _entries).length} data).',
     );
   }
 }

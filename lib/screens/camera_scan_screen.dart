@@ -45,6 +45,8 @@ class _CameraScanScreenState extends State<CameraScanScreen>
   bool _enhanceContrast = true;
   bool _wideStripRoi = true;
   bool _ocrAutoSave = true;
+  bool _blockDuplicates = true;
+  final Set<String> _sessionSeen = <String>{};
   bool _flashSuccess = false;
 
   late ScannerMode _scannerMode;
@@ -228,6 +230,15 @@ class _CameraScanScreenState extends State<CameraScanScreen>
     required String? barcodeFormat,
     required String filterMode,
   }) async {
+    if (_blockDuplicates && widget.onScanSaved != null) {
+      final norm = text.trim().toLowerCase();
+      if (_sessionSeen.contains(norm)) {
+        HapticFeedback.lightImpact();
+        _triggerSuccessFeedback(label: 'DUPLIKAT dilewati: $text');
+        return;
+      }
+      _sessionSeen.add(norm);
+    }
     HapticFeedback.heavyImpact();
     final entry = ScanEntry(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -772,6 +783,30 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                               ),
                             ],
                             const Spacer(),
+                            GestureDetector(
+                              onTap: () => setState(() => _blockDuplicates = !_blockDuplicates),
+                              child: Container(
+                                margin: const EdgeInsets.only(right: 6),
+                                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: _blockDuplicates
+                                      ? const Color(0xFFFFD43B).withAlpha(42)
+                                      : Colors.black.withAlpha(110),
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(
+                                    color: _blockDuplicates ? const Color(0xFFFFD43B) : Colors.white38,
+                                  ),
+                                ),
+                                child: Text(
+                                  _blockDuplicates ? 'ANTI-DUP' : 'DUP ON',
+                                  style: TextStyle(
+                                    color: _blockDuplicates ? const Color(0xFFFFD43B) : Colors.white70,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                            ),
                             if (!isQrMode) ...[
                               // Toggle AUTO-SAVE 3x for OCR
                               GestureDetector(

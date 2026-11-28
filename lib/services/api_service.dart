@@ -31,7 +31,6 @@ class ApiService {
         return ApiStore.fromJson(jsonDecode(rawStore) as Map<String, dynamic>);
       }
 
-      // Migrate legacy single-API config if present
       final legacyRaw = prefs.getString(_legacyConfigKey);
       if (legacyRaw != null && legacyRaw.isNotEmpty) {
         final legacy =
@@ -58,13 +57,53 @@ class ApiService {
     await prefs.setString(_storeKey, jsonEncode(store.toJson()));
   }
 
+  /// Exports all API profiles as formatted JSON for team backup/sharing.
+  Future<String> exportStoreJson() async {
+    final store = await loadStore();
+    return const JsonEncoder.withIndent('  ').convert(store.toJson());
+  }
+
+  /// Imports API profiles from JSON (supports either ApiStore object or a single ApiConfig object).
+  /// Returns the number of profiles imported.
+  Future<int> importStoreJson(String rawJson) async {
+    final decoded = jsonDecode(rawJson);
+    final incoming = <ApiConfig>[];
+    if (decoded is Map<String, dynamic>) {
+      if (decoded['profiles'] is List) {
+        final parsed = ApiStore.fromJson(decoded);
+        incoming.addAll(parsed.profiles);
+      } else if (decoded['endpointUrl'] != null) {
+        incoming.add(ApiConfig.fromJson(decoded));
+      }
+    } else if (decoded is List) {
+      for (final item in decoded) {
+        if (item is Map<String, dynamic>) {
+          incoming.add(ApiConfig.fromJson(item));
+        }
+      }
+    }
+    if (incoming.isEmpty) return 0;
+
+    final store = await loadStore();
+    final merged = List<ApiConfig>.from(store.profiles);
+    for (final prof in incoming) {
+      final idx = merged.indexWhere((p) => p.id == prof.id);
+      if (idx >= 0) {
+        merged[idx] = prof;
+      } else {
+        merged.add(prof);
+      }
+    }
+    final nextActive = store.activeId ?? merged.first.id;
+    await saveStore(ApiStore(profiles: merged, activeId: nextActive));
+    return incoming.length;
+  }
+
   Future<ApiConfig?> loadActiveConfig() async {
     final store = await loadStore();
     return store.activeProfile;
   }
 
-  /// Adds a new profile or updates an existing one by ID.
-  /// If [setActive] is true (or this is the first profile), it becomes the only active API.
   Future<ApiStore> upsertProfile(
     ApiConfig profile, {
     bool setActive = false,
@@ -92,13 +131,12 @@ class ApiService {
     return nextStore;
   }
 
-  /// Sets exactly ONE active API profile (pass null to deactivate all / offline mode).
   Future<ApiStore> setActiveProfile(String? profileId) async {
     final store = await loadStore();
-    final validId = (profileId != null &&
-            store.profiles.any((p) => p.id == profileId))
-        ? profileId
-        : null;
+    final validId =
+        (profileId != null && store.profiles.any((p) => p.id == profileId))
+            ? profileId
+            : null;
     final nextStore = store.copyWith(
       activeId: validId,
       clearActive: validId == null,
@@ -119,9 +157,6 @@ class ApiService {
     return nextStore;
   }
 
-  /// Builds dynamic payload map from [config.customFields].
-  /// Supports scanValue, randomString (ID generator), staticValue (with template tokens),
-  /// timestamp, scanType, and note.
   Map<String, dynamic> buildPayload(
     ScanEntry entry,
     ApiConfig config, {
@@ -129,9 +164,12 @@ class ApiService {
   }) {
     final gen = randomGenerator ??
         (prefix) => generateRandomIdString(length: 10, prefix: prefix);
+    final extracted = applyRegexExtractor(entry.text, config.regexPattern);
 
     if (config.customFields.isEmpty) {
-      return entry.toApiPayload();
+      final base = entry.toApiPayload();
+      base['value'] = extracted;
+      return base;
     }
 
     final payload = <String, dynamic>{};
@@ -141,7 +179,7 @@ class ApiService {
 
       switch (field.type) {
         case ApiFieldType.scanValue:
-          payload[key] = entry.text;
+          payload[key] = extracted;
           break;
         case ApiFieldType.randomString:
           payload[key] = gen(field.value);
@@ -156,7 +194,7 @@ class ApiService {
           payload[key] = entry.note;
           break;
         case ApiFieldType.staticValue:
-          payload[key] = _expandTemplate(field.value, entry, gen);
+          payload[key] = _expandTemplate(field.value, entry, extracted, gen);
           break;
       }
     }
@@ -167,11 +205,12 @@ class ApiService {
   String _expandTemplate(
     String template,
     ScanEntry entry,
+    String extractedValue,
     String Function(String prefix) gen,
   ) {
     var out = template
-        .replaceAll('{{value}}', entry.text)
-        .replaceAll('{{scan}}', entry.text)
+        .replaceAll('{{value}}', extractedValue)
+        .replaceAll('{{scan}}', extractedValue)
         .replaceAll('{{scan_type}}', entry.scanType)
         .replaceAll('{{note}}', entry.note)
         .replaceAll('{{timestamp}}', entry.createdAt.toIso8601String());
@@ -249,8 +288,8 @@ class ApiService {
       }
 
       final ok = res.statusCode >= 200 && res.statusCode < 300;
-      final preview = res.body.length > 300
-          ? '${res.body.substring(0, 300)}...'
+      final preview = res.body.length > 500
+          ? '${res.body.substring(0, 500)}...'
           : res.body;
 
       return ApiSendResult(

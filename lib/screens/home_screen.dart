@@ -193,6 +193,26 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+
+  Future<void> _exportJson() async {
+    final items = _filteredEntries;
+    if (items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Belum ada data log untuk diekspor.')),
+      );
+      return;
+    }
+    try {
+      await _repo.shareJson(subset: items);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal ekspor JSON: $e')),
+        );
+      }
+    }
+  }
+
   void _showEntryDetail(ScanEntry entry) {
     final textCtrl = TextEditingController(text: entry.text);
     final noteCtrl = TextEditingController(text: entry.note);
@@ -524,6 +544,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.more_vert_rounded, color: Color(0xFFCBD5E1)),
             onSelected: (val) {
               if (val == 'csv') _exportCsv();
+              if (val == 'json') _exportJson();
               if (val == 'clear') _confirmClearAll();
             },
             itemBuilder: (_) => const [
@@ -538,6 +559,20 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     SizedBox(width: 10),
                     Text('Ekspor CSV (Excel)'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'json',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.data_object_rounded,
+                      color: Color(0xFF00E5FF),
+                      size: 19,
+                    ),
+                    SizedBox(width: 10),
+                    Text('Ekspor JSON'),
                   ],
                 ),
               ),

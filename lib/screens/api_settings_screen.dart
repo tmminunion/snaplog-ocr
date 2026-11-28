@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/scan_entry.dart';
 import '../services/api_service.dart';
@@ -101,6 +102,72 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
     setState(() => _store = updated);
   }
 
+
+  Future<void> _exportProfilesJson() async {
+    final jsonStr = await _apiService.exportStoreJson();
+    await Clipboard.setData(ClipboardData(text: jsonStr));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Konfigurasi profil API (JSON) disalin ke clipboard.'),
+        backgroundColor: Color(0xFF00897B),
+      ),
+    );
+  }
+
+  Future<void> _importProfilesDialog() async {
+    final ctrl = TextEditingController();
+    final imported = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF11182C),
+        title: const Text('Impor Profil API (JSON)', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 6,
+          style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace'),
+          decoration: const InputDecoration(
+            hintText: 'Tempel JSON hasil ekspor Scan2API di sini...',
+            hintStyle: TextStyle(color: Color(0xFF64748B)),
+            filled: true,
+            fillColor: Color(0xFF0A0F1E),
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(0),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              try {
+                final count = await _apiService.importStoreJson(ctrl.text.trim());
+                if (ctx.mounted) Navigator.of(ctx).pop(count);
+              } catch (_) {
+                if (ctx.mounted) Navigator.of(ctx).pop(-1);
+              }
+            },
+            child: const Text('Impor'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (!mounted || imported == null || imported == 0) return;
+    if (imported < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Format JSON profil tidak valid.'), backgroundColor: Color(0xFFE53935)),
+      );
+      return;
+    }
+    await _loadStore();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$imported profil API berhasil diimpor.'), backgroundColor: const Color(0xFF00897B)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final active = _store.activeProfile;
@@ -119,6 +186,16 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
           ),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Ekspor Profil JSON',
+            onPressed: _store.profiles.isEmpty ? null : _exportProfilesJson,
+            icon: const Icon(Icons.ios_share_rounded, size: 20),
+          ),
+          IconButton(
+            tooltip: 'Impor Profil JSON',
+            onPressed: _importProfilesDialog,
+            icon: const Icon(Icons.download_rounded, size: 20),
+          ),
           if (active != null)
             TextButton(
               onPressed: () => _selectActive(active.id),
@@ -416,6 +493,7 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
   late final TextEditingController _urlCtrl;
   late final TextEditingController _headerKeyCtrl;
   late final TextEditingController _headerValCtrl;
+  late final TextEditingController _regexCtrl;
 
   late String _id;
   late String _method;
@@ -435,6 +513,7 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
     _urlCtrl = TextEditingController(text: cfg?.endpointUrl ?? '');
     _headerKeyCtrl = TextEditingController(text: cfg?.headerKey ?? '');
     _headerValCtrl = TextEditingController(text: cfg?.headerValue ?? '');
+    _regexCtrl = TextEditingController(text: cfg?.regexPattern ?? '');
     _method = cfg?.method ?? 'POST';
     _autoSend = cfg?.autoSend ?? false;
 
@@ -455,6 +534,7 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
     _urlCtrl.dispose();
     _headerKeyCtrl.dispose();
     _headerValCtrl.dispose();
+    _regexCtrl.dispose();
     for (final row in _fieldRows) {
       row.dispose();
     }
@@ -475,8 +555,29 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
       headerKey: _headerKeyCtrl.text.trim(),
       headerValue: _headerValCtrl.text.trim(),
       autoSend: _autoSend,
+      regexPattern: _regexCtrl.text.trim(),
       customFields: fields,
     );
+  }
+
+
+  void _applyPreset(ApiConfig preset) {
+    setState(() {
+      _nameCtrl.text = preset.name;
+      _urlCtrl.text = preset.endpointUrl;
+      _method = preset.method;
+      _headerKeyCtrl.text = preset.headerKey;
+      _headerValCtrl.text = preset.headerValue;
+      _autoSend = preset.autoSend;
+      _regexCtrl.text = preset.regexPattern;
+      for (final row in _fieldRows) {
+        row.dispose();
+      }
+      _fieldRows.clear();
+      for (final f in preset.customFields) {
+        _fieldRows.add(_FieldRowData(key: f.key, type: f.type, value: f.value));
+      }
+    });
   }
 
   void _addFieldRow({
@@ -704,6 +805,44 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
           ),
           const SizedBox(height: 14),
 
+          // 1-Click Integration Presets
+          _sectionLabel('PRESET TEMPLATE 1-KLIK'),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final preset in apiIntegrationPresets())
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ActionChip(
+                      backgroundColor: const Color(0xFF11182C),
+                      side: const BorderSide(color: Color(0xFF1E293B)),
+                      label: Text(
+                        preset.name,
+                        style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 11.5, fontWeight: FontWeight.w700),
+                      ),
+                      onPressed: () => _applyPreset(preset),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _sectionLabel('SMART REGEX FILTER (OPSIONAL)'),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _regexCtrl,
+            style: const TextStyle(color: Colors.white, fontSize: 13, fontFamily: 'monospace'),
+            decoration: InputDecoration(
+              hintText: r'Contoh: \d{6,} atau SN-([A-Z0-9]+)',
+              hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+              filled: true,
+              fillColor: const Color(0xFF11182C),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+          const SizedBox(height: 14),
           Container(
             decoration: BoxDecoration(
               color: const Color(0xFF11182C),
